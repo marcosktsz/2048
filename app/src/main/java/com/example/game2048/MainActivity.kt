@@ -60,9 +60,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity() {
                             motion = null
                             settingsOpen = true
                         },
-                        onMove = { direction, dragOffset ->
+                        onMove = { direction, dragProgress ->
                             val previous = game
                             val next = GameLogic.move(previous, direction)
                             if (next == previous) {
@@ -177,8 +177,7 @@ class MainActivity : ComponentActivity() {
                                     next,
                                     direction,
                                     motionId,
-                                    dragOffset.x,
-                                    dragOffset.y,
+                                    dragProgress,
                                 )
                                 undoState = previous
                                 game = next
@@ -233,7 +232,7 @@ private fun GameScreen(
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
     onSettings: () -> Unit,
-    onMove: (Direction, Offset) -> Boolean,
+    onMove: (Direction, Float) -> Boolean,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
 ) {
@@ -529,13 +528,14 @@ private fun GameBoard(
     board: List<List<Int>>,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
-    onMove: (Direction, Offset) -> Boolean,
+    onMove: (Direction, Float) -> Boolean,
 ) {
     val colors = MaterialTheme.colorScheme
     val boardColor = colors.surface
-    val travelMotionScheme = remember { MotionScheme.standard() }
-    val dragPreview = remember(board) { Animatable(Offset.Zero, Offset.VectorConverter) }
-    val dragScope = rememberCoroutineScope()
+    val gap = 8.dp
+    val gapPx = with(LocalDensity.current) { gap.toPx() }
+    var dragDirection by remember(board) { mutableStateOf<Direction?>(null) }
+    var dragProgress by remember(board) { mutableFloatStateOf(0f) }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -546,56 +546,59 @@ private fun GameBoard(
             .pointerInput(board) {
                 var dragX = 0f
                 var dragY = 0f
-                fun previewOffset(): Offset {
-                    val limit = size.width * 0.14f
-                    return Offset(
-                        x = (dragX * 0.5f).coerceIn(-limit, limit),
-                        y = (dragY * 0.5f).coerceIn(-limit, limit),
-                    )
-                }
                 detectDragGestures(
                     onDragStart = {
                         dragX = 0f
                         dragY = 0f
-                        dragScope.launch { dragPreview.snapTo(Offset.Zero) }
+                        dragDirection = null
+                        dragProgress = 0f
                     },
                     onDragEnd = {
-                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 28f) {
-                            val direction =
-                                if (kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
-                                    if (dragX > 0) Direction.RIGHT else Direction.LEFT
-                                } else {
-                                    if (dragY > 0) Direction.DOWN else Direction.UP
-                                }
-                            if (!onMove(direction, previewOffset())) {
-                                dragScope.launch { dragPreview.animateTo(Offset.Zero, travelMotionScheme.fastSpatialSpec()) }
-                            }
-                        } else {
-                            dragScope.launch { dragPreview.animateTo(Offset.Zero, travelMotionScheme.fastSpatialSpec()) }
+                        val direction = dragDirection
+                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 28f && direction != null) {
+                            if (!onMove(direction, dragProgress)) dragProgress = 0f
                         }
+                        dragDirection = null
                     },
                     onDragCancel = {
                         dragX = 0f
                         dragY = 0f
-                        dragScope.launch { dragPreview.animateTo(Offset.Zero, travelMotionScheme.fastSpatialSpec()) }
+                        dragDirection = null
+                        dragProgress = 0f
                     },
                     onDrag = { change, amount ->
                         dragX += amount.x
                         dragY += amount.y
-                        val preview = previewOffset()
-                        dragScope.launch { dragPreview.snapTo(preview) }
+                        if (dragDirection == null && maxOf(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 18f) {
+                            dragDirection = if (kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
+                                if (dragX > 0) Direction.RIGHT else Direction.LEFT
+                            } else {
+                                if (dragY > 0) Direction.DOWN else Direction.UP
+                            }
+                        }
+                        dragDirection?.let { direction ->
+                            val distance = if (direction == Direction.LEFT || direction == Direction.RIGHT) {
+                                kotlin.math.abs(dragX)
+                            } else {
+                                kotlin.math.abs(dragY)
+                            }
+                            val cellStepPx = (size.width + gapPx) / 4f
+                            dragProgress = (distance / (cellStepPx * 3f)).coerceIn(0f, 1f)
+                        }
                         change.consume()
                     },
                 )
             },
     ) {
-        val gap = 8.dp
         val cellSize = (maxWidth - gap * 3) / 4
         val stepPx = with(LocalDensity.current) { (cellSize + gap).roundToPx() }
+        val previewTiles = remember(board, dragDirection) {
+            dragDirection?.let { GameLogic.previewTiles(board, it) }.orEmpty()
+        }
 
         Box(Modifier.fillMaxSize()) {
             if (motion == null) {
-                TileGrid(board, cellSize, gap, dragPreview.value)
+                TileGrid(board, cellSize, gap, stepPx, previewTiles, dragProgress)
             } else {
                 val current = motion
                 var phase by remember(current.id) { mutableStateOf(BoardAnimationPhase.MOVING) }
@@ -630,8 +633,7 @@ private fun GameBoard(
                                 motionId = current.id,
                                 cellSize = cellSize,
                                 stepPx = stepPx,
-                                initialDragX = current.initialDragX,
-                                initialDragY = current.initialDragY,
+                                dragProgress = current.dragProgress,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -654,8 +656,7 @@ private fun GameBoard(
                                 motionId = current.id,
                                 cellSize = cellSize,
                                 stepPx = stepPx,
-                                initialDragX = current.initialDragX,
-                                initialDragY = current.initialDragY,
+                                dragProgress = current.dragProgress,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -671,18 +672,22 @@ private fun TileGrid(
     board: List<List<Int>>,
     cellSize: Dp,
     gap: Dp,
-    previewOffset: Offset = Offset.Zero,
+    stepPx: Int = 0,
+    previewTiles: List<TileMotion> = emptyList(),
+    previewProgress: Float = 0f,
 ) {
+    val pathsBySource = previewTiles.associateBy { it.from }
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-        board.forEach { row ->
+        board.forEachIndexed { rowIndex, row ->
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                row.forEach { value ->
-                    val modifier = if (value == 0 || previewOffset == Offset.Zero) {
+                row.forEachIndexed { columnIndex, value ->
+                    val path = if (value == 0) null else pathsBySource[BoardPosition(rowIndex, columnIndex)]
+                    val modifier = if (path == null || previewProgress == 0f) {
                         Modifier
                     } else {
                         Modifier.graphicsLayer {
-                            translationX = previewOffset.x
-                            translationY = previewOffset.y
+                            translationX = (path.to.column - path.from.column) * stepPx * previewProgress
+                            translationY = (path.to.row - path.from.row) * stepPx * previewProgress
                         }
                     }
                     Tile(value = value, size = cellSize, modifier = modifier)
@@ -701,20 +706,15 @@ private fun AnimatedPathTile(
     motionId: Int,
     cellSize: Dp,
     stepPx: Int,
-    initialDragX: Float,
-    initialDragY: Float,
+    dragProgress: Float,
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
     val travelMotionScheme = remember { MotionScheme.standard() }
-    val dragOffset = if (tileMotion.kind == TileMotionKind.SPAWN) {
-        Offset.Zero
-    } else {
-        Offset(initialDragX, initialDragY)
-    }
+    val progress = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else dragProgress
     val start = Offset(
-        tileMotion.from.column * stepPx.toFloat() + dragOffset.x,
-        tileMotion.from.row * stepPx.toFloat() + dragOffset.y,
+        (tileMotion.from.column + (tileMotion.to.column - tileMotion.from.column) * progress) * stepPx,
+        (tileMotion.from.row + (tileMotion.to.row - tileMotion.from.row) * progress) * stepPx,
     )
     val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
     val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }

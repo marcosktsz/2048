@@ -28,12 +28,16 @@ internal data class BoardMotion(
     val id: Int,
     val tiles: List<TileMotion>,
     val merges: List<MergeMotion>,
-    val initialDragX: Float = 0f,
-    val initialDragY: Float = 0f,
+    val dragProgress: Float = 0f,
 )
 
 internal object GameLogic {
     private const val SIZE = 4
+    private data class SlidePlan(
+        val tiles: List<TileMotion>,
+        val merges: List<MergeMotion>,
+        val occupied: Set<BoardPosition>,
+    )
 
     fun newGame(): GameState {
         var state = GameState(List(SIZE) { List(SIZE) { 0 } })
@@ -89,12 +93,31 @@ internal object GameLogic {
         after: GameState,
         direction: Direction,
         id: Int,
-        initialDragX: Float = 0f,
-        initialDragY: Float = 0f,
+        dragProgress: Float = 0f,
     ): BoardMotion {
+        val plan = slidePlan(before.board, direction)
+        val tiles = plan.tiles.toMutableList()
+
+        for (row in 0 until SIZE) {
+            for (column in 0 until SIZE) {
+                val position = BoardPosition(row, column)
+                val value = after.board[row][column]
+                if (value != 0 && position !in plan.occupied) {
+                    tiles += TileMotion(value, position, position, TileMotionKind.SPAWN)
+                }
+            }
+        }
+
+        return BoardMotion(id, tiles, plan.merges, dragProgress)
+    }
+
+    fun previewTiles(board: List<List<Int>>, direction: Direction): List<TileMotion> =
+        slidePlan(board, direction).tiles
+
+    private fun slidePlan(board: List<List<Int>>, direction: Direction): SlidePlan {
         val tiles = mutableListOf<TileMotion>()
         val merges = mutableListOf<MergeMotion>()
-        val occupiedAfterSlide = mutableSetOf<BoardPosition>()
+        val occupied = mutableSetOf<BoardPosition>()
 
         for (lineIndex in 0 until SIZE) {
             val positions = (0 until SIZE).map { offset ->
@@ -106,7 +129,7 @@ internal object GameLogic {
                 }
             }
             val entries = positions.mapNotNull { position ->
-                before.board[position.row][position.column]
+                board[position.row][position.column]
                     .takeIf { it != 0 }
                     ?.let { it to position }
             }
@@ -122,27 +145,17 @@ internal object GameLogic {
                     merges += MergeMotion(current.first * 2, target)
                     readIndex += 2
                 } else {
-                    if (current.second != target || initialDragX != 0f || initialDragY != 0f) {
+                    if (current.second != target) {
                         tiles += TileMotion(current.first, current.second, target, TileMotionKind.SLIDE)
                     }
                     readIndex++
                 }
-                occupiedAfterSlide += target
+                occupied += target
                 writeIndex++
             }
         }
 
-        for (row in 0 until SIZE) {
-            for (column in 0 until SIZE) {
-                val position = BoardPosition(row, column)
-                val value = after.board[row][column]
-                if (value != 0 && position !in occupiedAfterSlide) {
-                    tiles += TileMotion(value, position, position, TileMotionKind.SPAWN)
-                }
-            }
-        }
-
-        return BoardMotion(id, tiles, merges, initialDragX, initialDragY)
+        return SlidePlan(tiles, merges, occupied)
     }
 
     fun animationBoard(board: List<List<Int>>, motion: BoardMotion, spawning: Boolean): List<List<Int>> {

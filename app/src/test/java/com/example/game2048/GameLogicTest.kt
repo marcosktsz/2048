@@ -54,12 +54,10 @@ class GameLogicTest {
             moved,
             Direction.LEFT,
             id = 1,
-            initialDragX = 24f,
-            initialDragY = -8f,
+            dragProgress = 0.5f,
         )
 
-        assertEquals(24f, motion.initialDragX)
-        assertEquals(-8f, motion.initialDragY)
+        assertEquals(0.5f, motion.dragProgress)
         assertEquals(
             listOf(
                 TileMotion(2, BoardPosition(0, 1), BoardPosition(0, 0), TileMotionKind.MERGE_SOURCE),
@@ -76,5 +74,29 @@ class GameLogicTest {
         assertEquals(0, movingBoard[0][0])
         assertEquals(4, spawningBoard[0][0])
         assertEquals(0, spawningBoard[spawnedAt.row][spawnedAt.column])
+    }
+
+    @Test
+    fun dragPreviewContainsOnlyTilesThatMoveAlongTheChosenAxis() {
+        val board = listOf(
+            listOf(0, 2, 0, 0),
+            listOf(4, 0, 0, 0),
+            listOf(0, 0, 0, 0),
+            listOf(0, 0, 0, 0),
+        )
+
+        val leftPreview = GameLogic.previewTiles(board, Direction.LEFT)
+        assertEquals(
+            listOf(TileMotion(2, BoardPosition(0, 1), BoardPosition(0, 0), TileMotionKind.SLIDE)),
+            leftPreview,
+        )
+        assertTrue(leftPreview.all { it.from.row == it.to.row })
+
+        val upPreview = GameLogic.previewTiles(board, Direction.UP)
+        assertEquals(
+            listOf(TileMotion(4, BoardPosition(1, 0), BoardPosition(0, 0), TileMotionKind.SLIDE)),
+            upPreview,
+        )
+        assertTrue(upPreview.all { it.from.column == it.to.column })
     }
 }
