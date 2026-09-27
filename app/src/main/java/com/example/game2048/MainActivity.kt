@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity() {
                             motion = null
                             settingsOpen = true
                         },
-                        onMove = { direction, dragProgress ->
+                        onMove = { direction, previewDistancePx ->
                             val previous = game
                             val next = GameLogic.move(previous, direction)
                             if (next == previous) {
@@ -177,7 +177,7 @@ class MainActivity : ComponentActivity() {
                                     next,
                                     direction,
                                     motionId,
-                                    dragProgress,
+                                    previewDistancePx,
                                 )
                                 undoState = previous
                                 game = next
@@ -533,9 +533,10 @@ private fun GameBoard(
     val colors = MaterialTheme.colorScheme
     val boardColor = colors.surface
     val gap = 8.dp
-    val gapPx = with(LocalDensity.current) { gap.toPx() }
+    val previewLimitPx = with(LocalDensity.current) { 12.dp.toPx() }
+    val swipeThresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
     var dragDirection by remember(board) { mutableStateOf<Direction?>(null) }
-    var dragProgress by remember(board) { mutableFloatStateOf(0f) }
+    var previewDistancePx by remember(board) { mutableFloatStateOf(0f) }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -551,12 +552,12 @@ private fun GameBoard(
                         dragX = 0f
                         dragY = 0f
                         dragDirection = null
-                        dragProgress = 0f
+                        previewDistancePx = 0f
                     },
                     onDragEnd = {
                         val direction = dragDirection
-                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 28f && direction != null) {
-                            if (!onMove(direction, dragProgress)) dragProgress = 0f
+                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > swipeThresholdPx && direction != null) {
+                            if (!onMove(direction, previewDistancePx)) previewDistancePx = 0f
                         }
                         dragDirection = null
                     },
@@ -564,7 +565,7 @@ private fun GameBoard(
                         dragX = 0f
                         dragY = 0f
                         dragDirection = null
-                        dragProgress = 0f
+                        previewDistancePx = 0f
                     },
                     onDrag = { change, amount ->
                         dragX += amount.x
@@ -582,8 +583,7 @@ private fun GameBoard(
                             } else {
                                 kotlin.math.abs(dragY)
                             }
-                            val cellStepPx = (size.width + gapPx) / 4f
-                            dragProgress = (distance / (cellStepPx * 3f)).coerceIn(0f, 1f)
+                            previewDistancePx = (distance * 0.65f).coerceAtMost(previewLimitPx)
                         }
                         change.consume()
                     },
@@ -598,7 +598,25 @@ private fun GameBoard(
 
         Box(Modifier.fillMaxSize()) {
             if (motion == null) {
-                TileGrid(board, cellSize, gap, stepPx, previewTiles, dragProgress)
+                TileGrid(board, cellSize, gap, previewTiles, previewDistancePx)
+                if (previewDistancePx > 0f) {
+                    previewTiles.forEach { tileMotion ->
+                        val deltaX = (tileMotion.to.column - tileMotion.from.column) * stepPx.toFloat()
+                        val deltaY = (tileMotion.to.row - tileMotion.from.row) * stepPx.toFloat()
+                        Tile(
+                            value = tileMotion.value,
+                            size = cellSize,
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    tileMotion.from.column * stepPx +
+                                        deltaX.coerceIn(-previewDistancePx, previewDistancePx).roundToInt(),
+                                    tileMotion.from.row * stepPx +
+                                        deltaY.coerceIn(-previewDistancePx, previewDistancePx).roundToInt(),
+                                )
+                            },
+                        )
+                    }
+                }
             } else {
                 val current = motion
                 var phase by remember(current.id) { mutableStateOf(BoardAnimationPhase.MOVING) }
@@ -633,7 +651,7 @@ private fun GameBoard(
                                 motionId = current.id,
                                 cellSize = cellSize,
                                 stepPx = stepPx,
-                                dragProgress = current.dragProgress,
+                                previewDistancePx = current.previewDistancePx,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -656,7 +674,7 @@ private fun GameBoard(
                                 motionId = current.id,
                                 cellSize = cellSize,
                                 stepPx = stepPx,
-                                dragProgress = current.dragProgress,
+                                previewDistancePx = current.previewDistancePx,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -672,9 +690,8 @@ private fun TileGrid(
     board: List<List<Int>>,
     cellSize: Dp,
     gap: Dp,
-    stepPx: Int = 0,
     previewTiles: List<TileMotion> = emptyList(),
-    previewProgress: Float = 0f,
+    previewDistancePx: Float = 0f,
 ) {
     val pathsBySource = previewTiles.associateBy { it.from }
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
@@ -682,15 +699,8 @@ private fun TileGrid(
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                 row.forEachIndexed { columnIndex, value ->
                     val path = if (value == 0) null else pathsBySource[BoardPosition(rowIndex, columnIndex)]
-                    val modifier = if (path == null || previewProgress == 0f) {
-                        Modifier
-                    } else {
-                        Modifier.graphicsLayer {
-                            translationX = (path.to.column - path.from.column) * stepPx * previewProgress
-                            translationY = (path.to.row - path.from.row) * stepPx * previewProgress
-                        }
-                    }
-                    Tile(value = value, size = cellSize, modifier = modifier)
+                    val previewing = path != null && previewDistancePx > 0f
+                    Tile(value = if (previewing) 0 else value, size = cellSize)
                 }
             }
         }
@@ -706,15 +716,17 @@ private fun AnimatedPathTile(
     motionId: Int,
     cellSize: Dp,
     stepPx: Int,
-    dragProgress: Float,
+    previewDistancePx: Float,
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
     val travelMotionScheme = remember { MotionScheme.standard() }
-    val progress = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else dragProgress
+    val previewDistance = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else previewDistancePx
+    val deltaX = (tileMotion.to.column - tileMotion.from.column) * stepPx.toFloat()
+    val deltaY = (tileMotion.to.row - tileMotion.from.row) * stepPx.toFloat()
     val start = Offset(
-        (tileMotion.from.column + (tileMotion.to.column - tileMotion.from.column) * progress) * stepPx,
-        (tileMotion.from.row + (tileMotion.to.row - tileMotion.from.row) * progress) * stepPx,
+        tileMotion.from.column * stepPx + deltaX.coerceIn(-previewDistance, previewDistance),
+        tileMotion.from.row * stepPx + deltaY.coerceIn(-previewDistance, previewDistance),
     )
     val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
     val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }
