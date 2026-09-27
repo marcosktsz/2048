@@ -591,7 +591,7 @@ private fun GameBoard(
             },
     ) {
         val cellSize = (maxWidth - gap * 3) / 4
-        val stepPx = with(LocalDensity.current) { (cellSize + gap).roundToPx() }
+        val stepPx = with(LocalDensity.current) { cellSize.roundToPx() + gap.roundToPx() }
         val previewTiles = remember(board, dragDirection) {
             dragDirection?.let { GameLogic.previewTiles(board, it) }.orEmpty()
         }
@@ -623,23 +623,43 @@ private fun GameBoard(
                 val completed = remember(current.id) { mutableIntStateOf(0) }
                 val movingTiles = current.tiles.filter { it.kind != TileMotionKind.SPAWN }
                 val spawnedTiles = current.tiles.filter { it.kind == TileMotionKind.SPAWN }
-                val movingPartCount = movingTiles.size + current.merges.size
                 TileGrid(
-                    GameLogic.animationBoard(board, current, phase == BoardAnimationPhase.SPAWNING),
+                    GameLogic.animationBoard(board, current, phase),
                     cellSize,
                     gap,
                 )
                 val onPartFinished = {
                     completed.intValue += 1
-                    if (phase == BoardAnimationPhase.MOVING && completed.intValue == movingPartCount) {
-                        if (spawnedTiles.isNotEmpty()) {
-                            completed.intValue = 0
-                            phase = BoardAnimationPhase.SPAWNING
-                        } else {
-                            onMotionFinished(current.id)
+                    val partCount = when (phase) {
+                        BoardAnimationPhase.MOVING -> movingTiles.size
+                        BoardAnimationPhase.MERGING -> current.merges.size
+                        BoardAnimationPhase.SPAWNING -> spawnedTiles.size
+                    }
+                    if (completed.intValue == partCount) {
+                        when (phase) {
+                            BoardAnimationPhase.MOVING -> {
+                                when {
+                                    current.merges.isNotEmpty() -> {
+                                        completed.intValue = 0
+                                        phase = BoardAnimationPhase.MERGING
+                                    }
+                                    spawnedTiles.isNotEmpty() -> {
+                                        completed.intValue = 0
+                                        phase = BoardAnimationPhase.SPAWNING
+                                    }
+                                    else -> onMotionFinished(current.id)
+                                }
+                            }
+                            BoardAnimationPhase.MERGING -> {
+                                if (spawnedTiles.isNotEmpty()) {
+                                    completed.intValue = 0
+                                    phase = BoardAnimationPhase.SPAWNING
+                                } else {
+                                    onMotionFinished(current.id)
+                                }
+                            }
+                            BoardAnimationPhase.SPAWNING -> onMotionFinished(current.id)
                         }
-                    } else if (phase == BoardAnimationPhase.SPAWNING && completed.intValue == spawnedTiles.size) {
-                        onMotionFinished(current.id)
                     }
                 }
                 when (phase) {
@@ -656,6 +676,8 @@ private fun GameBoard(
                                 onFinished = onPartFinished,
                             )
                         }
+                    }
+                    BoardAnimationPhase.MERGING -> {
                         current.merges.forEachIndexed { index, merge ->
                             AnimatedMergeTile(
                                 merge = merge,
@@ -708,8 +730,6 @@ private fun TileGrid(
         }
     }
 }
-
-private enum class BoardAnimationPhase { MOVING, SPAWNING }
 
 @Composable
 private fun AnimatedPathTile(

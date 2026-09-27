@@ -14,6 +14,7 @@ internal data class GameState(
 internal data class BoardPosition(val row: Int, val column: Int)
 
 internal enum class TileMotionKind { SLIDE, MERGE_SOURCE, SPAWN }
+internal enum class BoardAnimationPhase { MOVING, MERGING, SPAWNING }
 
 internal data class TileMotion(
     val value: Int,
@@ -159,15 +160,19 @@ internal object GameLogic {
         return SlidePlan(tiles, merges, occupied)
     }
 
-    fun animationBoard(board: List<List<Int>>, motion: BoardMotion, spawning: Boolean): List<List<Int>> {
-        val hiddenTargets = if (spawning) {
-            motion.tiles.filter { it.kind == TileMotionKind.SPAWN }.map { it.to }.toSet()
-        } else {
-            (motion.tiles.map { it.to } + motion.merges.map { it.position }).toSet()
+    fun animationBoard(board: List<List<Int>>, motion: BoardMotion, phase: BoardAnimationPhase): List<List<Int>> {
+        val spawnTargets = motion.tiles.filter { it.kind == TileMotionKind.SPAWN }.map { it.to }
+        val hiddenTargets = when (phase) {
+            BoardAnimationPhase.MOVING -> motion.tiles
+                .filter { it.kind != TileMotionKind.SPAWN }
+                .map { it.to } + motion.merges.map { it.position } + spawnTargets
+            BoardAnimationPhase.MERGING -> motion.merges.map { it.position } + spawnTargets
+            BoardAnimationPhase.SPAWNING -> spawnTargets
         }
+        val hidden = hiddenTargets.toSet()
         return board.mapIndexed { rowIndex, row ->
             row.mapIndexed { columnIndex, value ->
-                if (BoardPosition(rowIndex, columnIndex) in hiddenTargets) 0 else value
+                if (BoardPosition(rowIndex, columnIndex) in hidden) 0 else value
             }
         }
     }

@@ -42,7 +42,7 @@ class GameLogicTest {
         val state = GameState(
             board = listOf(
                 listOf(0, 2, 2, 0),
-                listOf(0, 0, 0, 0),
+                listOf(0, 0, 4, 0),
                 listOf(0, 0, 0, 0),
                 listOf(0, 0, 0, 0),
             ),
@@ -59,6 +59,10 @@ class GameLogicTest {
 
         assertEquals(0.5f, motion.previewFraction)
         assertEquals(
+            listOf(TileMotion(4, BoardPosition(1, 2), BoardPosition(1, 0), TileMotionKind.SLIDE)),
+            motion.tiles.filter { it.kind == TileMotionKind.SLIDE },
+        )
+        assertEquals(
             listOf(
                 TileMotion(2, BoardPosition(0, 1), BoardPosition(0, 0), TileMotionKind.MERGE_SOURCE),
                 TileMotion(2, BoardPosition(0, 2), BoardPosition(0, 0), TileMotionKind.MERGE_SOURCE),
@@ -68,11 +72,15 @@ class GameLogicTest {
         assertEquals(listOf(MergeMotion(4, BoardPosition(0, 0))), motion.merges)
         assertEquals(1, motion.tiles.count { it.kind == TileMotionKind.SPAWN })
 
-        val movingBoard = GameLogic.animationBoard(moved.board, motion, spawning = false)
-        val spawningBoard = GameLogic.animationBoard(moved.board, motion, spawning = true)
+        val movingBoard = GameLogic.animationBoard(moved.board, motion, BoardAnimationPhase.MOVING)
+        val mergingBoard = GameLogic.animationBoard(moved.board, motion, BoardAnimationPhase.MERGING)
+        val spawningBoard = GameLogic.animationBoard(moved.board, motion, BoardAnimationPhase.SPAWNING)
         val spawnedAt = motion.tiles.single { it.kind == TileMotionKind.SPAWN }.to
         assertEquals(0, movingBoard[0][0])
+        assertEquals(0, mergingBoard[0][0])
+        assertEquals(4, mergingBoard[1][0])
         assertEquals(4, spawningBoard[0][0])
+        assertEquals(4, spawningBoard[1][0])
         assertEquals(0, spawningBoard[spawnedAt.row][spawnedAt.column])
     }
 
