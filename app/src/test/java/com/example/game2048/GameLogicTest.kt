@@ -54,10 +54,10 @@ class GameLogicTest {
             moved,
             Direction.LEFT,
             id = 1,
-            previewDistancePx = 24f,
+            previewFraction = 0.5f,
         )
 
-        assertEquals(24f, motion.previewDistancePx)
+        assertEquals(0.5f, motion.previewFraction)
         assertEquals(
             listOf(
                 TileMotion(2, BoardPosition(0, 1), BoardPosition(0, 0), TileMotionKind.MERGE_SOURCE),

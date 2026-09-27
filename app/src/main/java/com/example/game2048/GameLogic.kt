@@ -28,7 +28,8 @@ internal data class BoardMotion(
     val id: Int,
     val tiles: List<TileMotion>,
     val merges: List<MergeMotion>,
-    val previewDistancePx: Float = 0f,
+    val direction: Direction,
+    val previewFraction: Float = 0f,
 )
 
 internal object GameLogic {
@@ -93,7 +94,7 @@ internal object GameLogic {
         after: GameState,
         direction: Direction,
         id: Int,
-        previewDistancePx: Float = 0f,
+        previewFraction: Float = 0f,
     ): BoardMotion {
         val plan = slidePlan(before.board, direction)
         val tiles = plan.tiles.toMutableList()
@@ -108,7 +109,7 @@ internal object GameLogic {
             }
         }
 
-        return BoardMotion(id, tiles, plan.merges, previewDistancePx)
+        return BoardMotion(id, tiles, plan.merges, direction, previewFraction)
     }
 
     fun previewTiles(board: List<List<Int>>, direction: Direction): List<TileMotion> =

@@ -160,7 +160,7 @@ class MainActivity : ComponentActivity() {
                             motion = null
                             settingsOpen = true
                         },
-                        onMove = { direction, previewDistancePx ->
+                        onMove = { direction, previewFraction ->
                             val previous = game
                             val next = GameLogic.move(previous, direction)
                             if (next == previous) {
@@ -177,7 +177,7 @@ class MainActivity : ComponentActivity() {
                                     next,
                                     direction,
                                     motionId,
-                                    previewDistancePx,
+                                    previewFraction,
                                 )
                                 undoState = previous
                                 game = next
@@ -533,10 +533,9 @@ private fun GameBoard(
     val colors = MaterialTheme.colorScheme
     val boardColor = colors.surface
     val gap = 8.dp
-    val previewLimitPx = with(LocalDensity.current) { 12.dp.toPx() }
     val swipeThresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
     var dragDirection by remember(board) { mutableStateOf<Direction?>(null) }
-    var previewDistancePx by remember(board) { mutableFloatStateOf(0f) }
+    var previewFraction by remember(board) { mutableFloatStateOf(0f) }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -552,20 +551,21 @@ private fun GameBoard(
                         dragX = 0f
                         dragY = 0f
                         dragDirection = null
-                        previewDistancePx = 0f
+                        previewFraction = 0f
                     },
                     onDragEnd = {
                         val direction = dragDirection
                         if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > swipeThresholdPx && direction != null) {
-                            if (!onMove(direction, previewDistancePx)) previewDistancePx = 0f
+                            onMove(direction, previewFraction)
                         }
                         dragDirection = null
+                        previewFraction = 0f
                     },
                     onDragCancel = {
                         dragX = 0f
                         dragY = 0f
                         dragDirection = null
-                        previewDistancePx = 0f
+                        previewFraction = 0f
                     },
                     onDrag = { change, amount ->
                         dragX += amount.x
@@ -583,7 +583,7 @@ private fun GameBoard(
                             } else {
                                 kotlin.math.abs(dragY)
                             }
-                            previewDistancePx = (distance * 0.65f).coerceAtMost(previewLimitPx)
+                            previewFraction = (distance / swipeThresholdPx).coerceIn(0f, 1f)
                         }
                         change.consume()
                     },
@@ -598,22 +598,22 @@ private fun GameBoard(
 
         Box(Modifier.fillMaxSize()) {
             if (motion == null) {
-                TileGrid(board, cellSize, gap, previewTiles, previewDistancePx)
-                if (previewDistancePx > 0f) {
+                TileGrid(board, cellSize, gap, previewTiles, previewFraction)
+                if (previewFraction > 0f) {
                     previewTiles.forEach { tileMotion ->
-                        val deltaX = (tileMotion.to.column - tileMotion.from.column) * stepPx.toFloat()
-                        val deltaY = (tileMotion.to.row - tileMotion.from.row) * stepPx.toFloat()
+                        val stretch = previewFraction * 0.14f
+                        val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
                         Tile(
                             value = tileMotion.value,
                             size = cellSize,
-                            modifier = Modifier.offset {
-                                IntOffset(
-                                    tileMotion.from.column * stepPx +
-                                        deltaX.coerceIn(-previewDistancePx, previewDistancePx).roundToInt(),
-                                    tileMotion.from.row * stepPx +
-                                        deltaY.coerceIn(-previewDistancePx, previewDistancePx).roundToInt(),
-                                )
-                            },
+                            modifier = Modifier
+                                .offset {
+                                    IntOffset(tileMotion.from.column * stepPx, tileMotion.from.row * stepPx)
+                                }
+                                .graphicsLayer {
+                                    scaleX = if (horizontal) 1f + stretch else 1f - stretch * 0.35f
+                                    scaleY = if (horizontal) 1f - stretch * 0.35f else 1f + stretch
+                                },
                         )
                     }
                 }
@@ -651,7 +651,8 @@ private fun GameBoard(
                                 motionId = current.id,
                                 cellSize = cellSize,
                                 stepPx = stepPx,
-                                previewDistancePx = current.previewDistancePx,
+                                dragDirection = current.direction,
+                                previewFraction = current.previewFraction,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -674,7 +675,8 @@ private fun GameBoard(
                                 motionId = current.id,
                                 cellSize = cellSize,
                                 stepPx = stepPx,
-                                previewDistancePx = current.previewDistancePx,
+                                dragDirection = current.direction,
+                                previewFraction = current.previewFraction,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -691,7 +693,7 @@ private fun TileGrid(
     cellSize: Dp,
     gap: Dp,
     previewTiles: List<TileMotion> = emptyList(),
-    previewDistancePx: Float = 0f,
+    previewFraction: Float = 0f,
 ) {
     val pathsBySource = previewTiles.associateBy { it.from }
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
@@ -699,7 +701,7 @@ private fun TileGrid(
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                 row.forEachIndexed { columnIndex, value ->
                     val path = if (value == 0) null else pathsBySource[BoardPosition(rowIndex, columnIndex)]
-                    val previewing = path != null && previewDistancePx > 0f
+                    val previewing = path != null && previewFraction > 0f
                     Tile(value = if (previewing) 0 else value, size = cellSize)
                 }
             }
@@ -716,37 +718,47 @@ private fun AnimatedPathTile(
     motionId: Int,
     cellSize: Dp,
     stepPx: Int,
-    previewDistancePx: Float,
+    dragDirection: Direction,
+    previewFraction: Float,
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
     val travelMotionScheme = remember { MotionScheme.standard() }
-    val previewDistance = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else previewDistancePx
-    val deltaX = (tileMotion.to.column - tileMotion.from.column) * stepPx.toFloat()
-    val deltaY = (tileMotion.to.row - tileMotion.from.row) * stepPx.toFloat()
-    val start = Offset(
-        tileMotion.from.column * stepPx + deltaX.coerceIn(-previewDistance, previewDistance),
-        tileMotion.from.row * stepPx + deltaY.coerceIn(-previewDistance, previewDistance),
-    )
+    val stretch = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else previewFraction * 0.14f
+    val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
+    val initialStretch = if (horizontal) {
+        Offset(1f + stretch, 1f - stretch * 0.35f)
+    } else {
+        Offset(1f - stretch * 0.35f, 1f + stretch)
+    }
+    val inFlightStretch = if (horizontal) Offset(1.1f, 0.94f) else Offset(0.94f, 1.1f)
+    val start = Offset(tileMotion.from.column * stepPx.toFloat(), tileMotion.from.row * stepPx.toFloat())
     val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
     val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }
     val scale = remember(motionId, index) {
         Animatable(if (tileMotion.kind == TileMotionKind.SPAWN) 0.5f else 1f)
     }
+    val stretchScale = remember(motionId, index) { Animatable(initialStretch, Offset.VectorConverter) }
     val alpha = remember(motionId, index) { Animatable(1f) }
 
     LaunchedEffect(motionId, index) {
         when (tileMotion.kind) {
-            TileMotionKind.SLIDE -> position.animateTo(target, travelMotionScheme.fastSpatialSpec())
-            TileMotionKind.MERGE_SOURCE -> coroutineScope {
-                launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
-                launch {
-                    delay(60)
-                    scale.animateTo(0.35f, motionScheme.fastSpatialSpec())
+            TileMotionKind.SLIDE -> {
+                coroutineScope {
+                    launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
+                    launch { stretchScale.animateTo(inFlightStretch, motionScheme.fastSpatialSpec()) }
                 }
-                launch {
-                    delay(60)
-                    alpha.animateTo(0f, motionScheme.fastEffectsSpec())
+                stretchScale.animateTo(Offset(1f, 1f), motionScheme.fastSpatialSpec())
+            }
+            TileMotionKind.MERGE_SOURCE -> {
+                coroutineScope {
+                    launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
+                    launch { stretchScale.animateTo(inFlightStretch, motionScheme.fastSpatialSpec()) }
+                }
+                stretchScale.animateTo(Offset(1f, 1f), motionScheme.fastSpatialSpec())
+                coroutineScope {
+                    launch { scale.animateTo(0.35f, motionScheme.fastSpatialSpec()) }
+                    launch { alpha.animateTo(0f, motionScheme.fastEffectsSpec()) }
                 }
             }
             TileMotionKind.SPAWN -> scale.animateTo(1f, motionScheme.fastSpatialSpec())
@@ -762,8 +774,8 @@ private fun AnimatedPathTile(
                 IntOffset(position.value.x.roundToInt(), position.value.y.roundToInt())
             }
             .graphicsLayer {
-                scaleX = scale.value
-                scaleY = scale.value
+                scaleX = scale.value * stretchScale.value.x
+                scaleY = scale.value * stretchScale.value.y
                 this.alpha = alpha.value
                 transformOrigin = TransformOrigin.Center
             },
