@@ -601,7 +601,7 @@ private fun GameBoard(
                 TileGrid(board, cellSize, gap, previewTiles, previewFraction)
                 if (previewFraction > 0f) {
                     previewTiles.forEach { tileMotion ->
-                        val stretch = previewFraction * 0.14f
+                        val stretch = previewFraction * 0.06f
                         val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
                         Tile(
                             value = tileMotion.value,
@@ -724,14 +724,14 @@ private fun AnimatedPathTile(
 ) {
     val motionScheme = MaterialTheme.motionScheme
     val travelMotionScheme = remember { MotionScheme.standard() }
-    val stretch = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else previewFraction * 0.14f
+    val stretch = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else previewFraction * 0.06f
     val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
     val initialStretch = if (horizontal) {
         Offset(1f + stretch, 1f - stretch * 0.35f)
     } else {
         Offset(1f - stretch * 0.35f, 1f + stretch)
     }
-    val inFlightStretch = if (horizontal) Offset(1.1f, 0.94f) else Offset(0.94f, 1.1f)
+    val inFlightStretch = if (horizontal) Offset(1.04f, 0.985f) else Offset(0.985f, 1.04f)
     val start = Offset(tileMotion.from.column * stepPx.toFloat(), tileMotion.from.row * stepPx.toFloat())
     val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
     val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }
@@ -792,15 +792,11 @@ private fun AnimatedMergeTile(
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
-    val scale = remember(motionId, index) { Animatable(0.65f) }
-    val alpha = remember(motionId, index) { Animatable(0f) }
+    val scale = remember(motionId, index) { Animatable(1.08f) }
 
     LaunchedEffect(motionId, index) {
         delay(40)
-        coroutineScope {
-            launch { scale.animateTo(1f, motionScheme.fastSpatialSpec()) }
-            launch { alpha.animateTo(1f, motionScheme.fastEffectsSpec()) }
-        }
+        scale.animateTo(1f, motionScheme.fastSpatialSpec())
         onFinished()
     }
 
@@ -814,7 +810,6 @@ private fun AnimatedMergeTile(
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
-                this.alpha = alpha.value
                 transformOrigin = TransformOrigin.Center
             },
     )
