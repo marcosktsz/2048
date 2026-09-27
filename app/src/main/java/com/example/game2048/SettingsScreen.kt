@@ -5,10 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,10 +51,8 @@ internal enum class AppThemeMode(val preferenceValue: String, val label: String)
 internal fun SettingsScreen(
     themeMode: AppThemeMode,
     hapticsEnabled: Boolean,
-    animationsEnabled: Boolean,
     onThemeModeChange: (AppThemeMode) -> Unit,
     onHapticsChange: (Boolean) -> Unit,
-    onAnimationsChange: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -138,13 +134,6 @@ internal fun SettingsScreen(
                                     description = "A small pulse on tile merges and game over.",
                                     checked = hapticsEnabled,
                                     onCheckedChange = onHapticsChange,
-                                )
-                                Spacer(Modifier.fillMaxWidth().height(1.dp).background(colors.outlineVariant.copy(alpha = 0.35f)))
-                                SettingsSwitchRow(
-                                    title = "Tile animations",
-                                    description = "Springy slides, merges, and score changes.",
-                                    checked = animationsEnabled,
-                                    onCheckedChange = onAnimationsChange,
                                 )
                             }
                         }

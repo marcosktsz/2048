@@ -15,7 +15,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -108,7 +107,6 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(AppThemeMode.fromPreference(preferences.getString("theme_mode", null)))
             }
             var hapticsEnabled by remember { mutableStateOf(preferences.getBoolean("haptics_enabled", true)) }
-            var animationsEnabled by remember { mutableStateOf(preferences.getBoolean("animations_enabled", true)) }
             var settingsOpen by remember { mutableStateOf(false) }
             val darkTheme = when (themeMode) {
                 AppThemeMode.SYSTEM -> systemDarkTheme
@@ -128,10 +126,7 @@ class MainActivity : ComponentActivity() {
                 else -> lightColorScheme()
             }
 
-            MaterialTheme(
-                colorScheme = colorScheme,
-                motionScheme = if (animationsEnabled) MotionScheme.expressive() else MotionScheme.standard(),
-            ) {
+            MaterialTheme(colorScheme = colorScheme, motionScheme = MotionScheme.expressive()) {
                 var game by remember { mutableStateOf(initialGame) }
                 var best by remember { mutableStateOf(preferences.getInt("best", 0)) }
                 var undoState by remember { mutableStateOf(initialUndo) }
@@ -143,7 +138,6 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(
                         themeMode = themeMode,
                         hapticsEnabled = hapticsEnabled,
-                        animationsEnabled = animationsEnabled,
                         onThemeModeChange = { mode ->
                             themeMode = mode
                             preferences.edit().putString("theme_mode", mode.preferenceValue).apply()
@@ -152,10 +146,6 @@ class MainActivity : ComponentActivity() {
                             hapticsEnabled = enabled
                             preferences.edit().putBoolean("haptics_enabled", enabled).apply()
                         },
-                        onAnimationsChange = { enabled ->
-                            animationsEnabled = enabled
-                            preferences.edit().putBoolean("animations_enabled", enabled).apply()
-                        },
                         onBack = { settingsOpen = false },
                     )
                 } else {
@@ -163,7 +153,6 @@ class MainActivity : ComponentActivity() {
                         game = game,
                         best = best,
                         canUndo = undoState != null,
-                        animationsEnabled = animationsEnabled,
                         motion = motion,
                         onMotionFinished = { id -> if (motion?.id == id) motion = null },
                         onSettings = {
@@ -180,11 +169,7 @@ class MainActivity : ComponentActivity() {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 }
                                 motionId += 1
-                                motion = if (animationsEnabled) {
-                                    GameLogic.motion(previous, next, direction, motionId)
-                                } else {
-                                    null
-                                }
+                                motion = GameLogic.motion(previous, next, direction, motionId)
                                 undoState = previous
                                 game = next
                                 persistGameState(preferences, next, previous)
@@ -234,7 +219,6 @@ private fun GameScreen(
     game: GameState,
     best: Int,
     canUndo: Boolean,
-    animationsEnabled: Boolean,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
     onSettings: () -> Unit,
@@ -292,8 +276,8 @@ private fun GameScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            ScoreCard(label = "SCORE", value = game.score, animate = animationsEnabled, modifier = Modifier.weight(1f))
-                            ScoreCard(label = "BEST", value = best, animate = animationsEnabled, modifier = Modifier.weight(1f))
+                            ScoreCard(label = "SCORE", value = game.score, modifier = Modifier.weight(1f))
+                            ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
                         }
 
                         Row(
@@ -489,18 +473,18 @@ private fun Header(onSettings: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ScoreCard(label: String, value: Int, animate: Boolean, modifier: Modifier = Modifier) {
+private fun ScoreCard(label: String, value: Int, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val motionScheme = MaterialTheme.motionScheme
     val displayedValue by animateIntAsState(
         targetValue = value,
-        animationSpec = if (animate) motionScheme.fastEffectsSpec() else snap(),
+        animationSpec = motionScheme.fastEffectsSpec(),
         label = "score-count",
     )
     val emphasis = remember { Animatable(1f) }
     var previousValue by remember { mutableIntStateOf(value) }
-    LaunchedEffect(value, animate) {
-        if (value != previousValue && animate) {
+    LaunchedEffect(value) {
+        if (value != previousValue) {
             previousValue = value
             emphasis.snapTo(0.86f)
             emphasis.animateTo(1f, motionScheme.fastSpatialSpec())
