@@ -10,10 +10,12 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -40,10 +42,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Surface
@@ -99,7 +103,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             val context = LocalContext.current
             val hapticFeedback = LocalHapticFeedback.current
-            val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+            val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+            var themeMode by remember {
+                mutableStateOf(AppThemeMode.fromPreference(preferences.getString("theme_mode", null)))
+            }
+            var hapticsEnabled by remember { mutableStateOf(preferences.getBoolean("haptics_enabled", true)) }
+            var animationsEnabled by remember { mutableStateOf(preferences.getBoolean("animations_enabled", true)) }
+            var settingsOpen by remember { mutableStateOf(false) }
+            val darkTheme = when (themeMode) {
+                AppThemeMode.SYSTEM -> systemDarkTheme
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.DARK -> true
+            }
             SideEffect {
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     isAppearanceLightStatusBars = !darkTheme
@@ -113,54 +128,88 @@ class MainActivity : ComponentActivity() {
                 else -> lightColorScheme()
             }
 
-            MaterialTheme(colorScheme = colorScheme, motionScheme = MotionScheme.expressive()) {
+            MaterialTheme(
+                colorScheme = colorScheme,
+                motionScheme = if (animationsEnabled) MotionScheme.expressive() else MotionScheme.standard(),
+            ) {
                 var game by remember { mutableStateOf(initialGame) }
                 var best by remember { mutableStateOf(preferences.getInt("best", 0)) }
                 var undoState by remember { mutableStateOf(initialUndo) }
                 var motion by remember { mutableStateOf<BoardMotion?>(null) }
                 var motionId by remember { mutableIntStateOf(0) }
 
-                GameScreen(
-                    game = game,
-                    best = best,
-                    canUndo = undoState != null,
-                    motion = motion,
-                    onMotionFinished = { id -> if (motion?.id == id) motion = null },
-                    onMove = { direction ->
-                        val previous = game
-                        val next = GameLogic.move(previous, direction)
-                        if (next != previous) {
-                            if (next.gameOver && !previous.gameOver) {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
-                            } else if (next.score > previous.score) {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                BackHandler(enabled = settingsOpen) { settingsOpen = false }
+                if (settingsOpen) {
+                    SettingsScreen(
+                        themeMode = themeMode,
+                        hapticsEnabled = hapticsEnabled,
+                        animationsEnabled = animationsEnabled,
+                        onThemeModeChange = { mode ->
+                            themeMode = mode
+                            preferences.edit().putString("theme_mode", mode.preferenceValue).apply()
+                        },
+                        onHapticsChange = { enabled ->
+                            hapticsEnabled = enabled
+                            preferences.edit().putBoolean("haptics_enabled", enabled).apply()
+                        },
+                        onAnimationsChange = { enabled ->
+                            animationsEnabled = enabled
+                            preferences.edit().putBoolean("animations_enabled", enabled).apply()
+                        },
+                        onBack = { settingsOpen = false },
+                    )
+                } else {
+                    GameScreen(
+                        game = game,
+                        best = best,
+                        canUndo = undoState != null,
+                        animationsEnabled = animationsEnabled,
+                        motion = motion,
+                        onMotionFinished = { id -> if (motion?.id == id) motion = null },
+                        onSettings = {
+                            motion = null
+                            settingsOpen = true
+                        },
+                        onMove = { direction ->
+                            val previous = game
+                            val next = GameLogic.move(previous, direction)
+                            if (next != previous) {
+                                if (hapticsEnabled && next.gameOver && !previous.gameOver) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
+                                } else if (hapticsEnabled && next.score > previous.score) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                }
+                                motionId += 1
+                                motion = if (animationsEnabled) {
+                                    GameLogic.motion(previous, next, direction, motionId)
+                                } else {
+                                    null
+                                }
+                                undoState = previous
+                                game = next
+                                persistGameState(preferences, next, previous)
+                                if (game.score > best) {
+                                    best = game.score
+                                    preferences.edit().putInt("best", best).apply()
+                                }
                             }
-                            motionId += 1
-                            motion = GameLogic.motion(previous, next, direction, motionId)
-                            undoState = previous
-                            game = next
-                            persistGameState(preferences, next, previous)
-                            if (game.score > best) {
-                                best = game.score
-                                preferences.edit().putInt("best", best).apply()
+                        },
+                        onUndo = {
+                            motion = null
+                            undoState?.let {
+                                game = it
+                                persistGameState(preferences, it, null)
                             }
-                        }
-                    },
-                    onUndo = {
-                        motion = null
-                        undoState?.let {
-                            game = it
-                            persistGameState(preferences, it, null)
-                        }
-                        undoState = null
-                    },
-                    onNewGame = {
-                        motion = null
-                        game = GameLogic.newGame()
-                        undoState = null
-                        persistGameState(preferences, game, null)
-                    },
-                )
+                            undoState = null
+                        },
+                        onNewGame = {
+                            motion = null
+                            game = GameLogic.newGame()
+                            undoState = null
+                            persistGameState(preferences, game, null)
+                        },
+                    )
+                }
             }
         }
     }
@@ -185,8 +234,10 @@ private fun GameScreen(
     game: GameState,
     best: Int,
     canUndo: Boolean,
+    animationsEnabled: Boolean,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
+    onSettings: () -> Unit,
     onMove: (Direction) -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
@@ -208,6 +259,7 @@ private fun GameScreen(
                 contentAlignment = Alignment.TopCenter,
             ) {
                 Header(
+                    onSettings = onSettings,
                     modifier = Modifier
                         .widthIn(max = 540.dp)
                         .fillMaxWidth()
@@ -240,8 +292,8 @@ private fun GameScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            ScoreCard(label = "SCORE", value = game.score, modifier = Modifier.weight(1f))
-                            ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
+                            ScoreCard(label = "SCORE", value = game.score, animate = animationsEnabled, modifier = Modifier.weight(1f))
+                            ScoreCard(label = "BEST", value = best, animate = animationsEnabled, modifier = Modifier.weight(1f))
                         }
 
                         Row(
@@ -407,39 +459,48 @@ private fun GameAlertDialog(
 }
 
 @Composable
-private fun Header(modifier: Modifier = Modifier) {
+private fun Header(onSettings: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        Text(
-            text = "2048",
-            color = colors.onSurface,
-            fontSize = 57.sp,
-            lineHeight = 61.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = (-3).sp,
-        )
-        Text(
-            text = "Make room for one more.",
-            color = colors.onSurfaceVariant,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-        )
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                text = "2048",
+                color = colors.onSurface,
+                fontSize = 57.sp,
+                lineHeight = 61.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = (-3).sp,
+            )
+            Text(
+                text = "Make room for one more.",
+                color = colors.onSurfaceVariant,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
+            androidx.compose.material3.Icon(
+                Icons.Rounded.Settings,
+                contentDescription = "Settings",
+                tint = colors.onSurfaceVariant,
+            )
+        }
     }
 }
 
 @Composable
-private fun ScoreCard(label: String, value: Int, modifier: Modifier = Modifier) {
+private fun ScoreCard(label: String, value: Int, animate: Boolean, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val motionScheme = MaterialTheme.motionScheme
     val displayedValue by animateIntAsState(
         targetValue = value,
-        animationSpec = motionScheme.fastEffectsSpec(),
+        animationSpec = if (animate) motionScheme.fastEffectsSpec() else snap(),
         label = "score-count",
     )
     val emphasis = remember { Animatable(1f) }
     var previousValue by remember { mutableIntStateOf(value) }
-    LaunchedEffect(value) {
-        if (value != previousValue) {
+    LaunchedEffect(value, animate) {
+        if (value != previousValue && animate) {
             previousValue = value
             emphasis.snapTo(0.86f)
             emphasis.animateTo(1f, motionScheme.fastSpatialSpec())
@@ -610,7 +671,7 @@ private fun AnimatedPathTile(
     val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
     val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }
     val scale = remember(motionId, index) {
-        Animatable(if (tileMotion.kind == TileMotionKind.SPAWN) 0.35f else 1f)
+        Animatable(if (tileMotion.kind == TileMotionKind.SPAWN) 0.5f else 1f)
     }
     val alpha = remember(motionId, index) { Animatable(1f) }
 
@@ -620,11 +681,11 @@ private fun AnimatedPathTile(
             TileMotionKind.MERGE_SOURCE -> coroutineScope {
                 launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
                 launch {
-                    delay(90)
+                    delay(60)
                     scale.animateTo(0.35f, motionScheme.fastSpatialSpec())
                 }
                 launch {
-                    delay(90)
+                    delay(60)
                     alpha.animateTo(0f, motionScheme.fastEffectsSpec())
                 }
             }
@@ -663,7 +724,7 @@ private fun AnimatedMergeTile(
     val alpha = remember(motionId, index) { Animatable(0f) }
 
     LaunchedEffect(motionId, index) {
-        delay(80)
+        delay(40)
         coroutineScope {
             launch { scale.animateTo(1f, motionScheme.fastSpatialSpec()) }
             launch { alpha.animateTo(1f, motionScheme.fastEffectsSpec()) }
