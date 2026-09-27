@@ -1,0 +1,717 @@
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
+
+package com.example.game2048
+
+import android.content.SharedPreferences
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val preferences = getSharedPreferences("2048", MODE_PRIVATE)
+        val initialGame = GameStateStorage.decode(preferences.getString("current_game", null))
+            ?: GameLogic.newGame()
+        val initialUndo = GameStateStorage.decode(preferences.getString("undo_game", null))
+        persistGameState(preferences, initialGame, initialUndo)
+        setContent {
+            val context = LocalContext.current
+            val hapticFeedback = LocalHapticFeedback.current
+            val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+            SideEffect {
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
+            val colorScheme = when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> dynamicDarkColorScheme(context)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
+                darkTheme -> darkColorScheme()
+                else -> lightColorScheme()
+            }
+
+            MaterialTheme(colorScheme = colorScheme, motionScheme = MotionScheme.expressive()) {
+                var game by remember { mutableStateOf(initialGame) }
+                var best by remember { mutableStateOf(preferences.getInt("best", 0)) }
+                var undoState by remember { mutableStateOf(initialUndo) }
+                var motion by remember { mutableStateOf<BoardMotion?>(null) }
+                var motionId by remember { mutableIntStateOf(0) }
+
+                GameScreen(
+                    game = game,
+                    best = best,
+                    canUndo = undoState != null,
+                    motion = motion,
+                    onMotionFinished = { id -> if (motion?.id == id) motion = null },
+                    onMove = { direction ->
+                        val previous = game
+                        val next = GameLogic.move(previous, direction)
+                        if (next != previous) {
+                            if (next.gameOver && !previous.gameOver) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
+                            } else if (next.score > previous.score) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                            }
+                            motionId += 1
+                            motion = GameLogic.motion(previous, next, direction, motionId)
+                            undoState = previous
+                            game = next
+                            persistGameState(preferences, next, previous)
+                            if (game.score > best) {
+                                best = game.score
+                                preferences.edit().putInt("best", best).apply()
+                            }
+                        }
+                    },
+                    onUndo = {
+                        motion = null
+                        undoState?.let {
+                            game = it
+                            persistGameState(preferences, it, null)
+                        }
+                        undoState = null
+                    },
+                    onNewGame = {
+                        motion = null
+                        game = GameLogic.newGame()
+                        undoState = null
+                        persistGameState(preferences, game, null)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun persistGameState(
+    preferences: SharedPreferences,
+    game: GameState,
+    undoState: GameState?,
+) {
+    preferences.edit()
+        .putString("current_game", GameStateStorage.encode(game))
+        .apply {
+            if (undoState == null) remove("undo_game")
+            else putString("undo_game", GameStateStorage.encode(undoState))
+        }
+        .apply()
+}
+
+@Composable
+private fun GameScreen(
+    game: GameState,
+    best: Int,
+    canUndo: Boolean,
+    motion: BoardMotion?,
+    onMotionFinished: (Int) -> Unit,
+    onMove: (Direction) -> Unit,
+    onUndo: () -> Unit,
+    onNewGame: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    var confirmNewGame by remember { mutableStateOf(false) }
+    var showGameOverDialog by remember { mutableStateOf(game.gameOver) }
+    LaunchedEffect(game.gameOver, motion?.id) {
+        if (game.gameOver && motion == null) showGameOverDialog = true
+    }
+    Surface(color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceContainerHigh)
+                    .statusBarsPadding()
+                    .displayCutoutPadding(),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Header(
+                    modifier = Modifier
+                        .widthIn(max = 540.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 22.dp, vertical = 16.dp),
+                )
+            }
+            Surface(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                color = colors.surface,
+            ) {
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    val compact = maxHeight < 760.dp
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = 540.dp)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 22.dp)
+                            .padding(
+                                top = if (compact) 24.dp else 34.dp,
+                                bottom = if (compact) 16.dp else 26.dp,
+                            ),
+                        verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            ScoreCard(label = "SCORE", value = game.score, modifier = Modifier.weight(1f))
+                            ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Button(
+                                onClick = onUndo,
+                                enabled = canUndo,
+                                modifier = Modifier.weight(1f).height(52.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.secondaryContainer,
+                                    contentColor = colors.onSecondaryContainer,
+                                    disabledContainerColor = colors.surfaceVariant,
+                                    disabledContentColor = colors.onSurface.copy(alpha = 0.38f),
+                                ),
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("UNDO", fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            }
+                            Button(
+                                onClick = { confirmNewGame = true },
+                                modifier = Modifier.weight(1f).height(52.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.primary,
+                                    contentColor = colors.onPrimary,
+                                ),
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("NEW GAME", fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            }
+                        }
+
+                        GameBoard(game.board, motion, onMotionFinished, onMove)
+
+                        Text(
+                            text = when {
+                                game.gameOver -> "No moves left. Give it another go?"
+                                game.won -> "2048! Lovely work. Keep playing or start fresh."
+                                else -> "Slide the tiles to join matching numbers."
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (game.gameOver) colors.error else colors.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            text = "A LITTLE GAME OF BIG NUMBERS",
+                            modifier = Modifier.fillMaxWidth(),
+                            color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center,
+                            fontSize = 10.sp,
+                            letterSpacing = 2.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (confirmNewGame) {
+        GameAlertDialog(
+            title = "Start a new game?",
+            message = "Your current board and score will be replaced.",
+            dismissLabel = "CANCEL",
+            confirmLabel = "NEW GAME",
+            onDismiss = { confirmNewGame = false },
+            onConfirm = {
+                confirmNewGame = false
+                onNewGame()
+            },
+        )
+    }
+
+    if (showGameOverDialog) {
+        GameAlertDialog(
+            title = "No moves left",
+            message = "You scored ${game.score}. Ready for another round?",
+            dismissLabel = "CLOSE",
+            confirmLabel = "PLAY AGAIN",
+            onDismiss = { showGameOverDialog = false },
+            onConfirm = {
+                showGameOverDialog = false
+                onNewGame()
+            },
+        )
+    }
+}
+
+@Composable
+private fun GameAlertDialog(
+    title: String,
+    message: String,
+    dismissLabel: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        val blurBehindPx = with(LocalDensity.current) { 12.dp.roundToPx() }
+        val backgroundBlurPx = with(LocalDensity.current) { 20.dp.roundToPx() }
+        SideEffect {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dialogWindow != null) {
+                dialogWindow.addFlags(
+                    WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                        WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
+                )
+                dialogWindow.setDimAmount(0.18f)
+                val attributes = dialogWindow.attributes
+                attributes.blurBehindRadius = blurBehindPx
+                dialogWindow.attributes = attributes
+                dialogWindow.setBackgroundBlurRadius(backgroundBlurPx)
+            }
+        }
+        Surface(
+            modifier = Modifier.widthIn(min = 280.dp, max = 560.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = colors.surfaceContainerHigh.copy(alpha = 0.9f),
+            tonalElevation = 6.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    title,
+                    color = colors.onSurface,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    message,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().offset(x = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) { Text(dismissLabel) }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onConfirm) { Text(confirmLabel) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Header(modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(
+            text = "2048",
+            color = colors.onSurface,
+            fontSize = 57.sp,
+            lineHeight = 61.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = (-3).sp,
+        )
+        Text(
+            text = "Make room for one more.",
+            color = colors.onSurfaceVariant,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+private fun ScoreCard(label: String, value: Int, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val motionScheme = MaterialTheme.motionScheme
+    val displayedValue by animateIntAsState(
+        targetValue = value,
+        animationSpec = motionScheme.fastEffectsSpec(),
+        label = "score-count",
+    )
+    val emphasis = remember { Animatable(1f) }
+    var previousValue by remember { mutableIntStateOf(value) }
+    LaunchedEffect(value) {
+        if (value != previousValue) {
+            previousValue = value
+            emphasis.snapTo(0.86f)
+            emphasis.animateTo(1f, motionScheme.fastSpatialSpec())
+        }
+    }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(19.dp))
+            .background(colors.surfaceContainer)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        Text(label, color = colors.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+        Text(
+            displayedValue.toString(),
+            modifier = Modifier.graphicsLayer {
+                scaleX = emphasis.value
+                scaleY = emphasis.value
+            },
+            color = colors.onSurface,
+            fontSize = 23.sp,
+            fontWeight = FontWeight.ExtraBold,
+            lineHeight = 26.sp,
+        )
+    }
+}
+
+@Composable
+private fun GameBoard(
+    board: List<List<Int>>,
+    motion: BoardMotion?,
+    onMotionFinished: (Int) -> Unit,
+    onMove: (Direction) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val boardColor = colors.surface
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(28.dp))
+            .background(boardColor)
+            .padding(11.dp)
+            .pointerInput(board) {
+                var dragX = 0f
+                var dragY = 0f
+                detectDragGestures(
+                    onDragStart = { dragX = 0f; dragY = 0f },
+                    onDragEnd = {
+                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 28f) {
+                            onMove(
+                                if (kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
+                                    if (dragX > 0) Direction.RIGHT else Direction.LEFT
+                                } else {
+                                    if (dragY > 0) Direction.DOWN else Direction.UP
+                                },
+                            )
+                        }
+                    },
+                    onDragCancel = { dragX = 0f; dragY = 0f },
+                    onDrag = { change, amount ->
+                        dragX += amount.x
+                        dragY += amount.y
+                        change.consume()
+                    },
+                )
+            },
+    ) {
+        val gap = 8.dp
+        val cellSize = (maxWidth - gap * 3) / 4
+        val stepPx = with(LocalDensity.current) { (cellSize + gap).roundToPx() }
+
+        Box(Modifier.fillMaxSize()) {
+            if (motion == null) {
+                TileGrid(board, cellSize, gap)
+            } else {
+                val current = motion
+                var phase by remember(current.id) { mutableStateOf(BoardAnimationPhase.MOVING) }
+                val completed = remember(current.id) { mutableIntStateOf(0) }
+                val movingTiles = current.tiles.filter { it.kind != TileMotionKind.SPAWN }
+                val spawnedTiles = current.tiles.filter { it.kind == TileMotionKind.SPAWN }
+                val movingPartCount = movingTiles.size + current.merges.size
+                TileGrid(
+                    GameLogic.animationBoard(board, current, phase == BoardAnimationPhase.SPAWNING),
+                    cellSize,
+                    gap,
+                )
+                val onPartFinished = {
+                    completed.intValue += 1
+                    if (phase == BoardAnimationPhase.MOVING && completed.intValue == movingPartCount) {
+                        if (spawnedTiles.isNotEmpty()) {
+                            completed.intValue = 0
+                            phase = BoardAnimationPhase.SPAWNING
+                        } else {
+                            onMotionFinished(current.id)
+                        }
+                    } else if (phase == BoardAnimationPhase.SPAWNING && completed.intValue == spawnedTiles.size) {
+                        onMotionFinished(current.id)
+                    }
+                }
+                when (phase) {
+                    BoardAnimationPhase.MOVING -> {
+                        movingTiles.forEachIndexed { index, tileMotion ->
+                            AnimatedPathTile(
+                                tileMotion = tileMotion,
+                                index = index,
+                                motionId = current.id,
+                                cellSize = cellSize,
+                                stepPx = stepPx,
+                                onFinished = onPartFinished,
+                            )
+                        }
+                        current.merges.forEachIndexed { index, merge ->
+                            AnimatedMergeTile(
+                                merge = merge,
+                                index = index,
+                                motionId = current.id,
+                                cellSize = cellSize,
+                                stepPx = stepPx,
+                                onFinished = onPartFinished,
+                            )
+                        }
+                    }
+                    BoardAnimationPhase.SPAWNING -> {
+                        spawnedTiles.forEachIndexed { index, tileMotion ->
+                            AnimatedPathTile(
+                                tileMotion = tileMotion,
+                                index = index + movingTiles.size,
+                                motionId = current.id,
+                                cellSize = cellSize,
+                                stepPx = stepPx,
+                                onFinished = onPartFinished,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TileGrid(board: List<List<Int>>, cellSize: Dp, gap: Dp) {
+    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+        board.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                row.forEach { value -> Tile(value = value, size = cellSize) }
+            }
+        }
+    }
+}
+
+private enum class BoardAnimationPhase { MOVING, SPAWNING }
+
+@Composable
+private fun AnimatedPathTile(
+    tileMotion: TileMotion,
+    index: Int,
+    motionId: Int,
+    cellSize: Dp,
+    stepPx: Int,
+    onFinished: () -> Unit,
+) {
+    val motionScheme = MaterialTheme.motionScheme
+    val travelMotionScheme = remember { MotionScheme.standard() }
+    val start = Offset(tileMotion.from.column * stepPx.toFloat(), tileMotion.from.row * stepPx.toFloat())
+    val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
+    val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }
+    val scale = remember(motionId, index) {
+        Animatable(if (tileMotion.kind == TileMotionKind.SPAWN) 0.35f else 1f)
+    }
+    val alpha = remember(motionId, index) { Animatable(1f) }
+
+    LaunchedEffect(motionId, index) {
+        when (tileMotion.kind) {
+            TileMotionKind.SLIDE -> position.animateTo(target, travelMotionScheme.fastSpatialSpec())
+            TileMotionKind.MERGE_SOURCE -> coroutineScope {
+                launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
+                launch {
+                    delay(90)
+                    scale.animateTo(0.35f, motionScheme.fastSpatialSpec())
+                }
+                launch {
+                    delay(90)
+                    alpha.animateTo(0f, motionScheme.fastEffectsSpec())
+                }
+            }
+            TileMotionKind.SPAWN -> scale.animateTo(1f, motionScheme.fastSpatialSpec())
+        }
+        onFinished()
+    }
+
+    Tile(
+        value = tileMotion.value,
+        size = cellSize,
+        modifier = Modifier
+            .offset {
+                IntOffset(position.value.x.roundToInt(), position.value.y.roundToInt())
+            }
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                this.alpha = alpha.value
+                transformOrigin = TransformOrigin.Center
+            },
+    )
+}
+
+@Composable
+private fun AnimatedMergeTile(
+    merge: MergeMotion,
+    index: Int,
+    motionId: Int,
+    cellSize: Dp,
+    stepPx: Int,
+    onFinished: () -> Unit,
+) {
+    val motionScheme = MaterialTheme.motionScheme
+    val scale = remember(motionId, index) { Animatable(0.65f) }
+    val alpha = remember(motionId, index) { Animatable(0f) }
+
+    LaunchedEffect(motionId, index) {
+        delay(80)
+        coroutineScope {
+            launch { scale.animateTo(1f, motionScheme.fastSpatialSpec()) }
+            launch { alpha.animateTo(1f, motionScheme.fastEffectsSpec()) }
+        }
+        onFinished()
+    }
+
+    Tile(
+        value = merge.value,
+        size = cellSize,
+        modifier = Modifier
+            .offset {
+                IntOffset(merge.position.column * stepPx, merge.position.row * stepPx)
+            }
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                this.alpha = alpha.value
+                transformOrigin = TransformOrigin.Center
+            },
+    )
+}
+
+@Composable
+private fun Tile(value: Int, size: Dp, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val tilePalette = TilePalette.colorsFor(value, colors)
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(17.dp))
+            .background(tilePalette.container)
+            .semantics { contentDescription = if (value == 0) "Empty" else value.toString() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (value != 0) {
+            Text(
+                text = value.toString(),
+                color = tilePalette.content,
+                fontSize = when {
+                    value < 100 -> 32.sp
+                    value < 1000 -> 27.sp
+                    else -> 21.sp
+                },
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-1).sp,
+                maxLines = 1,
+            )
+        }
+    }
+}
