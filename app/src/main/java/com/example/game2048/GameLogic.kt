@@ -28,6 +28,8 @@ internal data class BoardMotion(
     val id: Int,
     val tiles: List<TileMotion>,
     val merges: List<MergeMotion>,
+    val initialDragX: Float = 0f,
+    val initialDragY: Float = 0f,
 )
 
 internal object GameLogic {
@@ -82,7 +84,14 @@ internal object GameLogic {
         return addRandomTile(moved).let { it.copy(gameOver = !hasMoves(it.board)) }
     }
 
-    fun motion(before: GameState, after: GameState, direction: Direction, id: Int): BoardMotion {
+    fun motion(
+        before: GameState,
+        after: GameState,
+        direction: Direction,
+        id: Int,
+        initialDragX: Float = 0f,
+        initialDragY: Float = 0f,
+    ): BoardMotion {
         val tiles = mutableListOf<TileMotion>()
         val merges = mutableListOf<MergeMotion>()
         val occupiedAfterSlide = mutableSetOf<BoardPosition>()
@@ -113,7 +122,7 @@ internal object GameLogic {
                     merges += MergeMotion(current.first * 2, target)
                     readIndex += 2
                 } else {
-                    if (current.second != target) {
+                    if (current.second != target || initialDragX != 0f || initialDragY != 0f) {
                         tiles += TileMotion(current.first, current.second, target, TileMotionKind.SLIDE)
                     }
                     readIndex++
@@ -133,7 +142,7 @@ internal object GameLogic {
             }
         }
 
-        return BoardMotion(id, tiles, merges)
+        return BoardMotion(id, tiles, merges, initialDragX, initialDragY)
     }
 
     fun animationBoard(board: List<List<Int>>, motion: BoardMotion, spawning: Boolean): List<List<Int>> {

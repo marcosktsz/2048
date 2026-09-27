@@ -49,8 +49,17 @@ class GameLogicTest {
         )
         val moved = GameLogic.move(state, Direction.LEFT)
 
-        val motion = GameLogic.motion(state, moved, Direction.LEFT, id = 1)
+        val motion = GameLogic.motion(
+            state,
+            moved,
+            Direction.LEFT,
+            id = 1,
+            initialDragX = 24f,
+            initialDragY = -8f,
+        )
 
+        assertEquals(24f, motion.initialDragX)
+        assertEquals(-8f, motion.initialDragY)
         assertEquals(
             listOf(
                 TileMotion(2, BoardPosition(0, 1), BoardPosition(0, 0), TileMotionKind.MERGE_SOURCE),
