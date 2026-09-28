@@ -160,12 +160,10 @@ class MainActivity : ComponentActivity() {
                             motion = null
                             settingsOpen = true
                         },
-                        onMove = { direction, previewFraction ->
+                        onMove = { direction ->
                             val previous = game
                             val next = GameLogic.move(previous, direction)
-                            if (next == previous) {
-                                false
-                            } else {
+                            if (next != previous) {
                                 if (hapticsEnabled && next.gameOver && !previous.gameOver) {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
                                 } else if (hapticsEnabled && next.score > previous.score) {
@@ -177,7 +175,6 @@ class MainActivity : ComponentActivity() {
                                     next,
                                     direction,
                                     motionId,
-                                    previewFraction,
                                 )
                                 undoState = previous
                                 game = next
@@ -186,7 +183,6 @@ class MainActivity : ComponentActivity() {
                                     best = game.score
                                     preferences.edit().putInt("best", best).apply()
                                 }
-                                true
                             }
                         },
                         onUndo = {
@@ -232,7 +228,7 @@ private fun GameScreen(
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
     onSettings: () -> Unit,
-    onMove: (Direction, Float) -> Boolean,
+    onMove: (Direction) -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
 ) {
@@ -528,14 +524,11 @@ private fun GameBoard(
     board: List<List<Int>>,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
-    onMove: (Direction, Float) -> Boolean,
+    onMove: (Direction) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val boardColor = colors.surface
     val gap = 8.dp
-    val swipeThresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
-    var dragDirection by remember(board) { mutableStateOf<Direction?>(null) }
-    var previewFraction by remember(board) { mutableFloatStateOf(0f) }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -547,44 +540,22 @@ private fun GameBoard(
                 var dragX = 0f
                 var dragY = 0f
                 detectDragGestures(
-                    onDragStart = {
-                        dragX = 0f
-                        dragY = 0f
-                        dragDirection = null
-                        previewFraction = 0f
-                    },
+                    onDragStart = { dragX = 0f; dragY = 0f },
                     onDragEnd = {
-                        val direction = dragDirection
-                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > swipeThresholdPx && direction != null) {
-                            onMove(direction, previewFraction)
+                        if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 28f) {
+                            onMove(
+                                if (kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
+                                    if (dragX > 0) Direction.RIGHT else Direction.LEFT
+                                } else {
+                                    if (dragY > 0) Direction.DOWN else Direction.UP
+                                },
+                            )
                         }
-                        dragDirection = null
-                        previewFraction = 0f
                     },
-                    onDragCancel = {
-                        dragX = 0f
-                        dragY = 0f
-                        dragDirection = null
-                        previewFraction = 0f
-                    },
+                    onDragCancel = { dragX = 0f; dragY = 0f },
                     onDrag = { change, amount ->
                         dragX += amount.x
                         dragY += amount.y
-                        if (dragDirection == null && maxOf(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 18f) {
-                            dragDirection = if (kotlin.math.abs(dragX) > kotlin.math.abs(dragY)) {
-                                if (dragX > 0) Direction.RIGHT else Direction.LEFT
-                            } else {
-                                if (dragY > 0) Direction.DOWN else Direction.UP
-                            }
-                        }
-                        dragDirection?.let { direction ->
-                            val distance = if (direction == Direction.LEFT || direction == Direction.RIGHT) {
-                                kotlin.math.abs(dragX)
-                            } else {
-                                kotlin.math.abs(dragY)
-                            }
-                            previewFraction = (distance / swipeThresholdPx).coerceIn(0f, 1f)
-                        }
                         change.consume()
                     },
                 )
@@ -592,31 +563,10 @@ private fun GameBoard(
     ) {
         val cellSize = (maxWidth - gap * 3) / 4
         val stepPx = with(LocalDensity.current) { cellSize.roundToPx() + gap.roundToPx() }
-        val previewTiles = remember(board, dragDirection) {
-            dragDirection?.let { GameLogic.previewTiles(board, it) }.orEmpty()
-        }
 
         Box(Modifier.fillMaxSize()) {
             if (motion == null) {
-                TileGrid(board, cellSize, gap, previewTiles, previewFraction)
-                if (previewFraction > 0f) {
-                    previewTiles.forEach { tileMotion ->
-                        val stretch = previewFraction * 0.06f
-                        val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
-                        Tile(
-                            value = tileMotion.value,
-                            size = cellSize,
-                            modifier = Modifier
-                                .offset {
-                                    IntOffset(tileMotion.from.column * stepPx, tileMotion.from.row * stepPx)
-                                }
-                                .graphicsLayer {
-                                    scaleX = if (horizontal) 1f + stretch else 1f - stretch * 0.35f
-                                    scaleY = if (horizontal) 1f - stretch * 0.35f else 1f + stretch
-                                },
-                        )
-                    }
-                }
+                TileGrid(board, cellSize, gap)
             } else {
                 val current = motion
                 var phase by remember(current.id) { mutableStateOf(BoardAnimationPhase.MOVING) }
@@ -672,7 +622,6 @@ private fun GameBoard(
                                 cellSize = cellSize,
                                 stepPx = stepPx,
                                 dragDirection = current.direction,
-                                previewFraction = current.previewFraction,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -698,7 +647,6 @@ private fun GameBoard(
                                 cellSize = cellSize,
                                 stepPx = stepPx,
                                 dragDirection = current.direction,
-                                previewFraction = current.previewFraction,
                                 onFinished = onPartFinished,
                             )
                         }
@@ -714,17 +662,12 @@ private fun TileGrid(
     board: List<List<Int>>,
     cellSize: Dp,
     gap: Dp,
-    previewTiles: List<TileMotion> = emptyList(),
-    previewFraction: Float = 0f,
 ) {
-    val pathsBySource = previewTiles.associateBy { it.from }
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-        board.forEachIndexed { rowIndex, row ->
+        board.forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                row.forEachIndexed { columnIndex, value ->
-                    val path = if (value == 0) null else pathsBySource[BoardPosition(rowIndex, columnIndex)]
-                    val previewing = path != null && previewFraction > 0f
-                    Tile(value = if (previewing) 0 else value, size = cellSize)
+                row.forEach { value ->
+                    Tile(value = value, size = cellSize)
                 }
             }
         }
@@ -739,26 +682,19 @@ private fun AnimatedPathTile(
     cellSize: Dp,
     stepPx: Int,
     dragDirection: Direction,
-    previewFraction: Float,
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
     val travelMotionScheme = remember { MotionScheme.standard() }
-    val stretch = if (tileMotion.kind == TileMotionKind.SPAWN) 0f else previewFraction * 0.06f
     val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
-    val initialStretch = if (horizontal) {
-        Offset(1f + stretch, 1f - stretch * 0.35f)
-    } else {
-        Offset(1f - stretch * 0.35f, 1f + stretch)
-    }
-    val inFlightStretch = if (horizontal) Offset(1.04f, 0.985f) else Offset(0.985f, 1.04f)
+    val inFlightStretch = if (horizontal) Offset(1.02f, 0.9925f) else Offset(0.9925f, 1.02f)
     val start = Offset(tileMotion.from.column * stepPx.toFloat(), tileMotion.from.row * stepPx.toFloat())
     val target = Offset(tileMotion.to.column * stepPx.toFloat(), tileMotion.to.row * stepPx.toFloat())
     val position = remember(motionId, index) { Animatable(start, Offset.VectorConverter) }
     val scale = remember(motionId, index) {
         Animatable(if (tileMotion.kind == TileMotionKind.SPAWN) 0.5f else 1f)
     }
-    val stretchScale = remember(motionId, index) { Animatable(initialStretch, Offset.VectorConverter) }
+    val stretchScale = remember(motionId, index) { Animatable(Offset(1f, 1f), Offset.VectorConverter) }
     val alpha = remember(motionId, index) { Animatable(1f) }
 
     LaunchedEffect(motionId, index) {
@@ -812,7 +748,7 @@ private fun AnimatedMergeTile(
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
-    val scale = remember(motionId, index) { Animatable(1.08f) }
+    val scale = remember(motionId, index) { Animatable(1.04f) }
 
     LaunchedEffect(motionId, index) {
         delay(40)
