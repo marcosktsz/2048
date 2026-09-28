@@ -115,6 +115,9 @@ internal object GameLogic {
         return BoardMotion(id, tiles, plan.merges, direction)
     }
 
+    fun canMove(board: List<List<Int>>, direction: Direction): Boolean =
+        slidePlan(board, direction).tiles.isNotEmpty()
+
     private fun slidePlan(board: List<List<Int>>, direction: Direction): SlidePlan {
         val tiles = mutableListOf<TileMotion>()
         val merges = mutableListOf<MergeMotion>()

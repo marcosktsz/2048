@@ -8,13 +8,17 @@ package com.example.game2048
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -160,6 +164,7 @@ class MainActivity : ComponentActivity() {
                             motion = null
                             settingsOpen = true
                         },
+                        hapticsEnabled = hapticsEnabled,
                         onMove = { direction ->
                             val previous = game
                             val next = GameLogic.move(previous, direction)
@@ -220,6 +225,18 @@ private fun persistGameState(
         .apply()
 }
 
+// 2.25x spring stiffness makes motion roughly 1.5x faster without changing damping.
+private const val ANIMATION_STIFFNESS_MULTIPLIER = 2.25f
+
+private fun <T> fasterSpring(dampingRatio: Float, stiffness: Float): FiniteAnimationSpec<T> =
+    spring(dampingRatio = dampingRatio, stiffness = stiffness * ANIMATION_STIFFNESS_MULTIPLIER)
+
+private fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = fasterSpring(0.6f, 800f)
+
+private fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = fasterSpring(1f, 3800f)
+
+private fun <T> standardFastSpatialSpec(): FiniteAnimationSpec<T> = fasterSpring(0.9f, 1400f)
+
 @Composable
 private fun GameScreen(
     game: GameState,
@@ -228,6 +245,7 @@ private fun GameScreen(
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
     onSettings: () -> Unit,
+    hapticsEnabled: Boolean,
     onMove: (Direction) -> Unit,
     onUndo: () -> Unit,
     onNewGame: () -> Unit,
@@ -329,7 +347,7 @@ private fun GameScreen(
                             }
                         }
 
-                        GameBoard(game.board, motion, onMotionFinished, onMove)
+                        GameBoard(game.board, motion, onMotionFinished, hapticsEnabled, onMove)
 
                         Text(
                             text = when {
@@ -481,10 +499,9 @@ private fun Header(onSettings: () -> Unit, modifier: Modifier = Modifier) {
 @Composable
 private fun ScoreCard(label: String, value: Int, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    val motionScheme = MaterialTheme.motionScheme
     val displayedValue by animateIntAsState(
         targetValue = value,
-        animationSpec = motionScheme.fastEffectsSpec(),
+        animationSpec = fastEffectsSpec(),
         label = "score-count",
     )
     val emphasis = remember { Animatable(1f) }
@@ -493,7 +510,7 @@ private fun ScoreCard(label: String, value: Int, modifier: Modifier = Modifier) 
         if (value != previousValue) {
             previousValue = value
             emphasis.snapTo(0.86f)
-            emphasis.animateTo(1f, motionScheme.fastSpatialSpec())
+            emphasis.animateTo(1f, fastSpatialSpec())
         }
     }
     Column(
@@ -524,11 +541,15 @@ private fun GameBoard(
     board: List<List<Int>>,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
+    hapticsEnabled: Boolean,
     onMove: (Direction) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val boardColor = colors.surface
     val gap = 8.dp
+    val context = LocalContext.current
+    val vibrator = remember(context) { checkNotNull(context.getSystemService(Vibrator::class.java)) }
+    val hapticFeedback = LocalHapticFeedback.current
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -536,11 +557,17 @@ private fun GameBoard(
             .clip(RoundedCornerShape(28.dp))
             .background(boardColor)
             .padding(11.dp)
-            .pointerInput(board) {
+            .pointerInput(board, hapticsEnabled) {
                 var dragX = 0f
                 var dragY = 0f
+                var lastHapticDistance = 0f
+                val hapticInterval = size.width / 128f
                 detectDragGestures(
-                    onDragStart = { dragX = 0f; dragY = 0f },
+                    onDragStart = {
+                        dragX = 0f
+                        dragY = 0f
+                        lastHapticDistance = 0f
+                    },
                     onDragEnd = {
                         if (kotlin.math.max(kotlin.math.abs(dragX), kotlin.math.abs(dragY)) > 28f) {
                             onMove(
@@ -552,10 +579,40 @@ private fun GameBoard(
                             )
                         }
                     },
-                    onDragCancel = { dragX = 0f; dragY = 0f },
+                    onDragCancel = {
+                        dragX = 0f
+                        dragY = 0f
+                        lastHapticDistance = 0f
+                    },
                     onDrag = { change, amount ->
                         dragX += amount.x
                         dragY += amount.y
+                        val horizontal = kotlin.math.abs(dragX) > kotlin.math.abs(dragY)
+                        val direction = when {
+                            horizontal && dragX > 0 -> Direction.RIGHT
+                            horizontal -> Direction.LEFT
+                            dragY > 0 -> Direction.DOWN
+                            else -> Direction.UP
+                        }
+                        val distance = if (horizontal) kotlin.math.abs(dragX) else kotlin.math.abs(dragY)
+                        if (hapticsEnabled && distance > 0f &&
+                            (lastHapticDistance == 0f || distance - lastHapticDistance >= hapticInterval)
+                        ) {
+                            if (GameLogic.canMove(board, direction)) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                    vibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_LOW_TICK)
+                                ) {
+                                    vibrator.vibrate(
+                                        VibrationEffect.startComposition()
+                                            .addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 0.15f)
+                                            .compose(),
+                                    )
+                                } else {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                                }
+                                lastHapticDistance = distance
+                            }
+                        }
                         change.consume()
                     },
                 )
@@ -666,8 +723,6 @@ private fun AnimatedPathTile(
     dragDirection: Direction,
     onFinished: () -> Unit,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
-    val travelMotionScheme = remember { MotionScheme.standard() }
     val horizontal = dragDirection == Direction.LEFT || dragDirection == Direction.RIGHT
     val inFlightStretch = if (horizontal) Offset(1.02f, 0.9925f) else Offset(0.9925f, 1.02f)
     val start = Offset(tileMotion.from.column * stepPx.toFloat(), tileMotion.from.row * stepPx.toFloat())
@@ -683,25 +738,25 @@ private fun AnimatedPathTile(
         when (tileMotion.kind) {
             TileMotionKind.SLIDE -> {
                 coroutineScope {
-                    launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
-                    launch { stretchScale.animateTo(inFlightStretch, motionScheme.fastSpatialSpec()) }
+                    launch { position.animateTo(target, standardFastSpatialSpec()) }
+                    launch { stretchScale.animateTo(inFlightStretch, fastSpatialSpec()) }
                 }
-                stretchScale.animateTo(Offset(1f, 1f), motionScheme.fastSpatialSpec())
+                stretchScale.animateTo(Offset(1f, 1f), fastSpatialSpec())
             }
             TileMotionKind.MERGE_SOURCE -> {
                 coroutineScope {
-                    launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
+                    launch { position.animateTo(target, standardFastSpatialSpec()) }
                     launch {
-                        delay(60)
-                        scale.animateTo(0.35f, motionScheme.fastSpatialSpec())
+                        delay(40)
+                        scale.animateTo(0.35f, fastSpatialSpec())
                     }
                     launch {
-                        delay(60)
-                        alpha.animateTo(0f, motionScheme.fastEffectsSpec())
+                        delay(40)
+                        alpha.animateTo(0f, fastEffectsSpec())
                     }
                 }
             }
-            TileMotionKind.SPAWN -> scale.animateTo(1f, motionScheme.fastSpatialSpec())
+            TileMotionKind.SPAWN -> scale.animateTo(1f, fastSpatialSpec())
         }
         onFinished()
     }
@@ -731,15 +786,14 @@ private fun AnimatedMergeTile(
     stepPx: Int,
     onFinished: () -> Unit,
 ) {
-    val motionScheme = MaterialTheme.motionScheme
     val scale = remember(motionId, index) { Animatable(0.65f) }
     val alpha = remember(motionId, index) { Animatable(0f) }
 
     LaunchedEffect(motionId, index) {
-        delay(40)
+        delay(27)
         coroutineScope {
-            launch { scale.animateTo(1f, motionScheme.fastSpatialSpec()) }
-            launch { alpha.animateTo(1f, motionScheme.fastEffectsSpec()) }
+            launch { scale.animateTo(1f, fastSpatialSpec()) }
+            launch { alpha.animateTo(1f, fastEffectsSpec()) }
         }
         onFinished()
     }

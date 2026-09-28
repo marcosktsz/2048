@@ -1,6 +1,7 @@
 package com.example.game2048
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -107,6 +108,8 @@ class GameLogicTest {
         )
 
         assertSame(state, GameLogic.move(state, Direction.LEFT))
+        assertFalse(GameLogic.canMove(state.board, Direction.LEFT))
+        assertTrue(GameLogic.canMove(state.board, Direction.RIGHT))
     }
 
     @Test
