@@ -581,32 +581,16 @@ private fun GameBoard(
                 val onPartFinished = {
                     completed.intValue += 1
                     val partCount = when (phase) {
-                        BoardAnimationPhase.MOVING -> movingTiles.size
-                        BoardAnimationPhase.MERGING -> current.merges.size
+                        BoardAnimationPhase.MOVING -> movingTiles.size + current.merges.size
                         BoardAnimationPhase.SPAWNING -> spawnedTiles.size
                     }
                     if (completed.intValue == partCount) {
                         when (phase) {
-                            BoardAnimationPhase.MOVING -> {
-                                when {
-                                    current.merges.isNotEmpty() -> {
-                                        completed.intValue = 0
-                                        phase = BoardAnimationPhase.MERGING
-                                    }
-                                    spawnedTiles.isNotEmpty() -> {
-                                        completed.intValue = 0
-                                        phase = BoardAnimationPhase.SPAWNING
-                                    }
-                                    else -> onMotionFinished(current.id)
-                                }
-                            }
-                            BoardAnimationPhase.MERGING -> {
-                                if (spawnedTiles.isNotEmpty()) {
-                                    completed.intValue = 0
-                                    phase = BoardAnimationPhase.SPAWNING
-                                } else {
-                                    onMotionFinished(current.id)
-                                }
+                            BoardAnimationPhase.MOVING -> if (spawnedTiles.isNotEmpty()) {
+                                completed.intValue = 0
+                                phase = BoardAnimationPhase.SPAWNING
+                            } else {
+                                onMotionFinished(current.id)
                             }
                             BoardAnimationPhase.SPAWNING -> onMotionFinished(current.id)
                         }
@@ -625,8 +609,6 @@ private fun GameBoard(
                                 onFinished = onPartFinished,
                             )
                         }
-                    }
-                    BoardAnimationPhase.MERGING -> {
                         current.merges.forEachIndexed { index, merge ->
                             AnimatedMergeTile(
                                 merge = merge,
@@ -709,12 +691,14 @@ private fun AnimatedPathTile(
             TileMotionKind.MERGE_SOURCE -> {
                 coroutineScope {
                     launch { position.animateTo(target, travelMotionScheme.fastSpatialSpec()) }
-                    launch { stretchScale.animateTo(inFlightStretch, motionScheme.fastSpatialSpec()) }
-                }
-                stretchScale.animateTo(Offset(1f, 1f), motionScheme.fastSpatialSpec())
-                coroutineScope {
-                    launch { scale.animateTo(0.35f, motionScheme.fastSpatialSpec()) }
-                    launch { alpha.animateTo(0f, motionScheme.fastEffectsSpec()) }
+                    launch {
+                        delay(60)
+                        scale.animateTo(0.35f, motionScheme.fastSpatialSpec())
+                    }
+                    launch {
+                        delay(60)
+                        alpha.animateTo(0f, motionScheme.fastEffectsSpec())
+                    }
                 }
             }
             TileMotionKind.SPAWN -> scale.animateTo(1f, motionScheme.fastSpatialSpec())
@@ -748,11 +732,15 @@ private fun AnimatedMergeTile(
     onFinished: () -> Unit,
 ) {
     val motionScheme = MaterialTheme.motionScheme
-    val scale = remember(motionId, index) { Animatable(1.04f) }
+    val scale = remember(motionId, index) { Animatable(0.65f) }
+    val alpha = remember(motionId, index) { Animatable(0f) }
 
     LaunchedEffect(motionId, index) {
         delay(40)
-        scale.animateTo(1f, motionScheme.fastSpatialSpec())
+        coroutineScope {
+            launch { scale.animateTo(1f, motionScheme.fastSpatialSpec()) }
+            launch { alpha.animateTo(1f, motionScheme.fastEffectsSpec()) }
+        }
         onFinished()
     }
 
@@ -766,6 +754,7 @@ private fun AnimatedMergeTile(
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
+                this.alpha = alpha.value
                 transformOrigin = TransformOrigin.Center
             },
     )

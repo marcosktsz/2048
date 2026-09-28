@@ -14,7 +14,7 @@ internal data class GameState(
 internal data class BoardPosition(val row: Int, val column: Int)
 
 internal enum class TileMotionKind { SLIDE, MERGE_SOURCE, SPAWN }
-internal enum class BoardAnimationPhase { MOVING, MERGING, SPAWNING }
+internal enum class BoardAnimationPhase { MOVING, SPAWNING }
 
 internal data class TileMotion(
     val value: Int,
@@ -23,7 +23,11 @@ internal data class TileMotion(
     val kind: TileMotionKind,
 )
 
-internal data class MergeMotion(val value: Int, val position: BoardPosition)
+internal data class MergeMotion(
+    val value: Int,
+    val position: BoardPosition,
+    val targetOccupiedBeforeMerge: Boolean,
+)
 
 internal data class BoardMotion(
     val id: Int,
@@ -137,9 +141,11 @@ internal object GameLogic {
                 val current = entries[readIndex]
                 if (readIndex + 1 < entries.size && current.first == entries[readIndex + 1].first) {
                     val next = entries[readIndex + 1]
-                    tiles += TileMotion(current.first, current.second, target, TileMotionKind.MERGE_SOURCE)
+                    if (current.second != target) {
+                        tiles += TileMotion(current.first, current.second, target, TileMotionKind.MERGE_SOURCE)
+                    }
                     tiles += TileMotion(next.first, next.second, target, TileMotionKind.MERGE_SOURCE)
-                    merges += MergeMotion(current.first * 2, target)
+                    merges += MergeMotion(current.first * 2, target, current.second == target)
                     readIndex += 2
                 } else {
                     if (current.second != target) {
@@ -157,17 +163,28 @@ internal object GameLogic {
 
     fun animationBoard(board: List<List<Int>>, motion: BoardMotion, phase: BoardAnimationPhase): List<List<Int>> {
         val spawnTargets = motion.tiles.filter { it.kind == TileMotionKind.SPAWN }.map { it.to }
+        val stationaryMergeTargets = motion.merges
+            .filter { it.targetOccupiedBeforeMerge }
+            .map { it.position }
         val hiddenTargets = when (phase) {
             BoardAnimationPhase.MOVING -> motion.tiles
                 .filter { it.kind != TileMotionKind.SPAWN }
-                .map { it.to } + motion.merges.map { it.position } + spawnTargets
-            BoardAnimationPhase.MERGING -> motion.merges.map { it.position } + spawnTargets
+                .map { it.to }
+                .filterNot { it in stationaryMergeTargets } +
+                motion.merges.filterNot { it.targetOccupiedBeforeMerge }.map { it.position } + spawnTargets
             BoardAnimationPhase.SPAWNING -> spawnTargets
         }
         val hidden = hiddenTargets.toSet()
         return board.mapIndexed { rowIndex, row ->
             row.mapIndexed { columnIndex, value ->
-                if (BoardPosition(rowIndex, columnIndex) in hidden) 0 else value
+                val position = BoardPosition(rowIndex, columnIndex)
+                when {
+                    position in hidden -> 0
+                    phase == BoardAnimationPhase.MOVING && position in stationaryMergeTargets -> {
+                        motion.merges.first { it.position == position }.value / 2
+                    }
+                    else -> value
+                }
             }
         }
     }
