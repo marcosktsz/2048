@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -346,6 +347,7 @@ private fun GameScreen(
     val context = LocalContext.current
     val vibrator = remember(context) { checkNotNull(context.getSystemService(Vibrator::class.java)) }
     val dragHapticFeedback = LocalHapticFeedback.current
+    val swipeHapticIntervalPx = with(LocalDensity.current) { 2.dp.toPx() }
     var confirmNewGame by remember { mutableStateOf(false) }
     var showGameOverDialog by rememberSaveable { mutableStateOf(game.gameOver) }
     var gameOverDialogDismissed by rememberSaveable { mutableStateOf(false) }
@@ -376,7 +378,19 @@ private fun GameScreen(
                         .padding(horizontal = 22.dp, vertical = 16.dp),
                 )
             }
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .gameSwipeInput(
+                        game.board,
+                        hapticsEnabled,
+                        vibrator,
+                        dragHapticFeedback,
+                        swipeHapticIntervalPx,
+                        onMove,
+                    ),
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
@@ -392,6 +406,15 @@ private fun GameScreen(
                                 .widthIn(max = 540.dp)
                                 .fillMaxWidth()
                                 .verticalScroll(rememberScrollState())
+                                .heightIn(min = maxHeight)
+                                .gameSwipeInput(
+                                    game.board,
+                                    hapticsEnabled,
+                                    vibrator,
+                                    dragHapticFeedback,
+                                    swipeHapticIntervalPx,
+                                    onMove,
+                                )
                                 .padding(horizontal = 22.dp)
                                 .padding(
                                     top = if (compact) 24.dp else 34.dp,
@@ -452,11 +475,7 @@ private fun GameScreen(
                                 }
                             }
 
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .gameSwipeInput(game.board, hapticsEnabled, vibrator, dragHapticFeedback, onMove),
-                            ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
                                 Column(verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp)) {
                                     GameBoard(game.board, motion, onMotionFinished)
 
@@ -632,20 +651,20 @@ private fun Modifier.gameSwipeInput(
     hapticsEnabled: Boolean,
     vibrator: Vibrator,
     hapticFeedback: HapticFeedback,
+    hapticIntervalPx: Float,
     onMove: (Direction) -> Unit,
-): Modifier = pointerInput(board, hapticsEnabled) {
-    val swipeCommitDistancePx = size.width * 3f / 8f
+): Modifier = pointerInput(board, hapticsEnabled, hapticIntervalPx) {
+    val swipeHoldCommitDistancePx = 56f
     var swipe = SwipeGestureTracker(
         startedAtMillis = SystemClock.uptimeMillis(),
-        commitThresholdPx = swipeCommitDistancePx,
+        heldCommitThresholdPx = swipeHoldCommitDistancePx,
     )
     var lastHapticDistance = 0f
-    val hapticInterval = size.width / 128f
     detectDragGestures(
         onDragStart = {
             swipe = SwipeGestureTracker(
                 startedAtMillis = SystemClock.uptimeMillis(),
-                commitThresholdPx = swipeCommitDistancePx,
+                heldCommitThresholdPx = swipeHoldCommitDistancePx,
             )
             lastHapticDistance = 0f
         },
@@ -655,7 +674,7 @@ private fun Modifier.gameSwipeInput(
         onDragCancel = {
             swipe = SwipeGestureTracker(
                 startedAtMillis = SystemClock.uptimeMillis(),
-                commitThresholdPx = swipeCommitDistancePx,
+                heldCommitThresholdPx = swipeHoldCommitDistancePx,
             )
             lastHapticDistance = 0f
         },
@@ -665,7 +684,7 @@ private fun Modifier.gameSwipeInput(
             val distance = swipe.distance
             if (!swipe.isCancelled && swipe.progressDelta > 0f && direction != null &&
                 hapticsEnabled && distance > 0f &&
-                (lastHapticDistance == 0f || distance - lastHapticDistance >= hapticInterval)
+                (lastHapticDistance == 0f || distance - lastHapticDistance >= hapticIntervalPx)
             ) {
                 if (GameLogic.canMove(board, direction)) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
