@@ -2,6 +2,7 @@ package com.example.game2048
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -110,6 +111,75 @@ class GameLogicTest {
         assertSame(state, GameLogic.move(state, Direction.LEFT))
         assertFalse(GameLogic.canMove(state.board, Direction.LEFT))
         assertTrue(GameLogic.canMove(state.board, Direction.RIGHT))
+    }
+
+    @Test
+    fun reversingSwipeCancelsItsPendingMove() {
+        val swipe = SwipeGestureTracker(startedAtMillis = 0L)
+
+        swipe.add(0f, -80f, nowMillis = 100L)
+        assertEquals(Direction.UP, swipe.completedDirection(nowMillis = 100L))
+
+        swipe.add(0f, 40f, nowMillis = 200L)
+
+        assertTrue(swipe.isCancelled)
+        assertNull(swipe.completedDirection(nowMillis = 200L))
+    }
+
+    @Test
+    fun smallSwipeReversalDoesNotCancelMove() {
+        val swipe = SwipeGestureTracker(startedAtMillis = 0L)
+
+        swipe.add(0f, -60f, nowMillis = 100L)
+        swipe.add(0f, 10f, nowMillis = 200L)
+
+        assertFalse(swipe.isCancelled)
+        assertEquals(Direction.UP, swipe.completedDirection(nowMillis = 200L))
+    }
+
+    @Test
+    fun swipeMustTravelPastItsConfiguredThreshold() {
+        val swipe = SwipeGestureTracker(startedAtMillis = 0L, thresholdPx = 100f)
+
+        swipe.add(0f, -99f, nowMillis = 100L)
+        assertNull(swipe.completedDirection(nowMillis = 100L))
+
+        swipe.add(0f, -2f, nowMillis = 200L)
+
+        assertEquals(Direction.UP, swipe.completedDirection(nowMillis = 200L))
+    }
+
+    @Test
+    fun directionLocksBeforeTheLongerMoveCommitDistance() {
+        val swipe = SwipeGestureTracker(startedAtMillis = 0L, commitThresholdPx = 100f)
+
+        swipe.add(0f, -40f, nowMillis = 100L)
+
+        assertEquals(Direction.UP, swipe.direction)
+        assertNull(swipe.completedDirection(nowMillis = 100L))
+
+        swipe.add(0f, -61f, nowMillis = 200L)
+
+        assertEquals(Direction.UP, swipe.completedDirection(nowMillis = 200L))
+    }
+
+    @Test
+    fun swipeHeldTooLongBeforeReleaseIsCancelled() {
+        val swipe = SwipeGestureTracker(startedAtMillis = 0L)
+        swipe.add(0f, -60f, nowMillis = 100L)
+
+        assertNull(swipe.completedDirection(nowMillis = 1_100L))
+        assertTrue(swipe.isCancelled)
+    }
+
+    @Test
+    fun swipeContinuesAfterLongPauseWhenMovementResumes() {
+        val swipe = SwipeGestureTracker(startedAtMillis = 0L)
+        swipe.add(0f, -60f, nowMillis = 100L)
+        swipe.add(0f, -10f, nowMillis = 2_000L)
+
+        assertFalse(swipe.isCancelled)
+        assertEquals(Direction.UP, swipe.completedDirection(nowMillis = 2_000L))
     }
 
     @Test
