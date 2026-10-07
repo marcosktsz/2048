@@ -5,8 +5,9 @@
 
 package com.example.game2048
 
-import android.content.SharedPreferences
 import android.media.AudioManager
+import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -14,22 +15,17 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,6 +40,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -56,12 +53,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ButtonGroupScope
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Surface
@@ -89,6 +88,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -104,9 +104,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -129,7 +126,6 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val hapticFeedback = LocalHapticFeedback.current
             val audioManager = remember(context) { checkNotNull(context.getSystemService(AudioManager::class.java)) }
-            val supportsNativePredictiveBack = Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM
             val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
             var themeMode by remember {
                 mutableStateOf(AppThemeMode.fromPreference(preferences.getString("theme_mode", null)))
@@ -140,7 +136,14 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(preferences.getBoolean("current_match_undo_enabled", true))
             }
             var playSoundEnabled by remember { mutableStateOf(preferences.getBoolean("play_sound_enabled", true)) }
-            val navController = rememberNavController()
+            val settingsLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartActivityForResult(),
+            ) {
+                themeMode = AppThemeMode.fromPreference(preferences.getString("theme_mode", null))
+                hapticsEnabled = preferences.getBoolean("haptics_enabled", true)
+                undoEnabled = preferences.getBoolean("undo_enabled", true)
+                playSoundEnabled = preferences.getBoolean("play_sound_enabled", true)
+            }
             val darkTheme = when (themeMode) {
                 AppThemeMode.SYSTEM -> systemDarkTheme
                 AppThemeMode.LIGHT -> false
@@ -167,136 +170,66 @@ class MainActivity : ComponentActivity() {
                     var motion by remember { mutableStateOf<BoardMotion?>(null) }
                     var motionId by remember { mutableIntStateOf(0) }
 
-                    NavHost(
-                        navController = navController,
-                        startDestination = "game",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(colorScheme.surfaceContainerHigh),
-                        enterTransition = {
-                            slideInHorizontally(
-                                initialOffsetX = { width -> width / 12 },
-                                animationSpec = tween(450, easing = FastOutSlowInEasing),
-                            ) + fadeIn(animationSpec = tween(350, delayMillis = 100))
+                    GameScreen(
+                        game = game,
+                        best = best,
+                        canUndo = undoState != null,
+                        undoEnabledForMatch = undoEnabledForMatch,
+                        motion = motion,
+                        onMotionFinished = { id -> if (motion?.id == id) motion = null },
+                        onSettings = {
+                            motion = null
+                            settingsLauncher.launch(Intent(context, SettingsActivity::class.java))
                         },
-                        exitTransition = {
-                            slideOutHorizontally(
-                                targetOffsetX = { width -> -width / 12 },
-                                animationSpec = tween(450, easing = FastOutSlowInEasing),
-                            ) + fadeOut(animationSpec = tween(100))
-                        },
-                        popEnterTransition = {
-                            if (supportsNativePredictiveBack) {
-                                EnterTransition.None
-                            } else {
-                                slideInHorizontally(
-                                    initialOffsetX = { width -> -width / 12 },
-                                    animationSpec = tween(450, easing = FastOutSlowInEasing),
-                                ) + fadeIn(animationSpec = tween(350, delayMillis = 100))
-                            }
-                        },
-                        popExitTransition = {
-                            if (supportsNativePredictiveBack) {
-                                scaleOut(
-                                    targetScale = 0.9f,
-                                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                        hapticsEnabled = hapticsEnabled,
+                        onMove = { direction ->
+                            val previous = game
+                            val next = GameLogic.move(previous, direction)
+                            if (next != previous) {
+                                if (playSoundEnabled && next.score > previous.score) {
+                                    audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK)
+                                }
+                                if (hapticsEnabled && next.gameOver && !previous.gameOver) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
+                                } else if (hapticsEnabled && next.score > previous.score) {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                }
+                                motionId += 1
+                                motion = GameLogic.motion(
+                                    previous,
+                                    next,
+                                    direction,
+                                    motionId,
                                 )
-                            } else {
-                                slideOutHorizontally(
-                                    targetOffsetX = { width -> width / 12 },
-                                    animationSpec = tween(450, easing = FastOutSlowInEasing),
-                                ) + fadeOut(animationSpec = tween(100))
+                                val previousForUndo = previous.takeIf { undoEnabledForMatch }
+                                undoState = previousForUndo
+                                game = next
+                                persistGameState(preferences, next, previousForUndo)
+                                if (game.score > best) {
+                                    best = game.score
+                                    preferences.edit().putInt("best", best).apply()
+                                }
                             }
                         },
-                    ) {
-                        composable("game") {
-                            GameScreen(
-                                game = game,
-                                best = best,
-                                canUndo = undoState != null,
-                                undoEnabledForMatch = undoEnabledForMatch,
-                                motion = motion,
-                                onMotionFinished = { id -> if (motion?.id == id) motion = null },
-                                onSettings = {
-                                    motion = null
-                                    navController.navigate("settings") { launchSingleTop = true }
-                                },
-                                hapticsEnabled = hapticsEnabled,
-                                onMove = { direction ->
-                                    val previous = game
-                                    val next = GameLogic.move(previous, direction)
-                                    if (next != previous) {
-                                        if (playSoundEnabled && next.score > previous.score) {
-                                            audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK)
-                                        }
-                                        if (hapticsEnabled && next.gameOver && !previous.gameOver) {
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
-                                        } else if (hapticsEnabled && next.score > previous.score) {
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                        }
-                                        motionId += 1
-                                        motion = GameLogic.motion(
-                                            previous,
-                                            next,
-                                            direction,
-                                            motionId,
-                                        )
-                                        val previousForUndo = previous.takeIf { undoEnabledForMatch }
-                                        undoState = previousForUndo
-                                        game = next
-                                        persistGameState(preferences, next, previousForUndo)
-                                        if (game.score > best) {
-                                            best = game.score
-                                            preferences.edit().putInt("best", best).apply()
-                                        }
-                                    }
-                                },
-                                onUndo = {
-                                    motion = null
-                                    undoState?.let {
-                                        game = it
-                                        persistGameState(preferences, it, null)
-                                    }
-                                    undoState = null
-                                },
-                                onNewGame = {
-                                    motion = null
-                                    game = GameLogic.newGame()
-                                    undoState = null
-                                    undoEnabledForMatch = undoEnabled
-                                    preferences.edit()
-                                        .putBoolean("current_match_undo_enabled", undoEnabledForMatch)
-                                        .apply()
-                                    persistGameState(preferences, game, null)
-                                },
-                            )
-                        }
-                        composable("settings") {
-                            SettingsScreen(
-                                themeMode = themeMode,
-                                hapticsEnabled = hapticsEnabled,
-                                undoEnabled = undoEnabled,
-                                playSoundEnabled = playSoundEnabled,
-                                onThemeModeChange = { mode ->
-                                    themeMode = mode
-                                    preferences.edit().putString("theme_mode", mode.preferenceValue).apply()
-                                },
-                                onHapticsChange = { enabled ->
-                                    hapticsEnabled = enabled
-                                    preferences.edit().putBoolean("haptics_enabled", enabled).apply()
-                                },
-                                onUndoEnabledChange = { enabled ->
-                                    undoEnabled = enabled
-                                    preferences.edit().putBoolean("undo_enabled", enabled).apply()
-                                },
-                                onPlaySoundChange = { enabled ->
-                                    playSoundEnabled = enabled
-                                    preferences.edit().putBoolean("play_sound_enabled", enabled).apply()
-                                },
-                                onBack = { navController.popBackStack() },
-                            )
-                        }
-                    }
+                        onUndo = {
+                            motion = null
+                            undoState?.let {
+                                game = it
+                                persistGameState(preferences, it, null)
+                            }
+                            undoState = null
+                        },
+                        onNewGame = {
+                            motion = null
+                            game = GameLogic.newGame()
+                            undoState = null
+                            undoEnabledForMatch = undoEnabled
+                            preferences.edit()
+                                .putBoolean("current_match_undo_enabled", undoEnabledForMatch)
+                                .apply()
+                            persistGameState(preferences, game, null)
+                        },
+                    )
                 }
             }
         }
@@ -319,7 +252,6 @@ private fun persistGameState(
 
 // 2.25x spring stiffness makes motion roughly 1.5x faster without changing damping.
 private const val ANIMATION_STIFFNESS_MULTIPLIER = 2.25f
-
 private fun <T> fasterSpring(dampingRatio: Float, stiffness: Float): FiniteAnimationSpec<T> =
     spring(dampingRatio = dampingRatio, stiffness = stiffness * ANIMATION_STIFFNESS_MULTIPLIER)
 
@@ -348,6 +280,9 @@ private fun GameScreen(
     val vibrator = remember(context) { checkNotNull(context.getSystemService(Vibrator::class.java)) }
     val dragHapticFeedback = LocalHapticFeedback.current
     val swipeHapticIntervalPx = with(LocalDensity.current) { 2.dp.toPx() }
+    val undoInteractionSource = remember { MutableInteractionSource() }
+    val newGameInteractionSource = remember { MutableInteractionSource() }
+    val settingsInteractionSource = remember { MutableInteractionSource() }
     var confirmNewGame by remember { mutableStateOf(false) }
     var showGameOverDialog by rememberSaveable { mutableStateOf(game.gameOver) }
     var gameOverDialogDismissed by rememberSaveable { mutableStateOf(false) }
@@ -371,7 +306,6 @@ private fun GameScreen(
                 contentAlignment = Alignment.TopCenter,
             ) {
                 Header(
-                    onSettings = onSettings,
                     modifier = Modifier
                         .widthIn(max = 540.dp)
                         .fillMaxWidth()
@@ -418,7 +352,7 @@ private fun GameScreen(
                                 .padding(horizontal = 22.dp)
                                 .padding(
                                     top = if (compact) 24.dp else 34.dp,
-                                    bottom = if (!undoEnabledForMatch) 96.dp else if (compact) 16.dp else 26.dp,
+                                    bottom = 96.dp,
                                 ),
                             verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp),
                         ) {
@@ -428,51 +362,6 @@ private fun GameScreen(
                             ) {
                                 ScoreCard(label = "SCORE", value = game.score, modifier = Modifier.weight(1f))
                                 ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
-                            }
-
-                            if (undoEnabledForMatch) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    Button(
-                                        onClick = onUndo,
-                                        enabled = canUndo,
-                                        modifier = Modifier.weight(1f).height(52.dp),
-                                        shape = RoundedCornerShape(18.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = colors.secondaryContainer,
-                                            contentColor = colors.onSecondaryContainer,
-                                            disabledContainerColor = colors.surfaceVariant,
-                                            disabledContentColor = colors.onSurface.copy(alpha = 0.38f),
-                                        ),
-                                    ) {
-                                        androidx.compose.material3.Icon(
-                                            Icons.AutoMirrored.Rounded.ArrowBack,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(Modifier.width(7.dp))
-                                        Text("UNDO", fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                                    }
-                                    Button(
-                                        onClick = { confirmNewGame = true },
-                                        modifier = Modifier.weight(1f).height(52.dp),
-                                        shape = RoundedCornerShape(18.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = colors.primary,
-                                            contentColor = colors.onPrimary,
-                                        ),
-                                    ) {
-                                        androidx.compose.material3.Icon(
-                                            Icons.Rounded.Refresh,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(Modifier.width(7.dp))
-                                        Text("NEW GAME", fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                                    }
-                                }
                             }
 
                             Box(modifier = Modifier.fillMaxWidth()) {
@@ -505,18 +394,42 @@ private fun GameScreen(
                         }
                     }
                 }
-                if (!undoEnabledForMatch) {
-                    ExtendedFloatingActionButton(
-                        onClick = { confirmNewGame = true },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 22.dp, bottom = 16.dp)
-                            .navigationBarsPadding(),
-                        icon = {
-                            androidx.compose.material3.Icon(Icons.Rounded.Refresh, contentDescription = null)
+                HorizontalFloatingToolbar(
+                    expanded = true,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp)
+                        .navigationBarsPadding(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                ) {
+                    ButtonGroup(
+                        overflowIndicator = { menuState ->
+                            ButtonGroupDefaults.OverflowIndicator(menuState = menuState)
                         },
-                        text = { Text("NEW GAME", fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (undoEnabledForMatch) {
+                            toolbarActionItem(
+                                onClick = onUndo,
+                                label = "Undo",
+                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                interactionSource = undoInteractionSource,
+                                enabled = canUndo,
+                            )
+                        }
+                        toolbarActionItem(
+                            onClick = { confirmNewGame = true },
+                            label = "New game",
+                            icon = Icons.Rounded.Refresh,
+                            interactionSource = newGameInteractionSource,
+                        )
+                        toolbarActionItem(
+                            onClick = onSettings,
+                            label = "Settings",
+                            icon = Icons.Rounded.Settings,
+                            interactionSource = settingsInteractionSource,
+                        )
+                    }
                 }
             }
         }
@@ -617,10 +530,10 @@ private fun GameAlertDialog(
 }
 
 @Composable
-private fun Header(onSettings: () -> Unit, modifier: Modifier = Modifier) {
+private fun Header(modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = "2048",
                 color = colors.onSurface,
@@ -636,14 +549,42 @@ private fun Header(onSettings: () -> Unit, modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Medium,
             )
         }
-        IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
-            androidx.compose.material3.Icon(
-                Icons.Rounded.Settings,
-                contentDescription = "Settings",
-                tint = colors.onSurfaceVariant,
-            )
-        }
     }
+}
+
+private fun ButtonGroupScope.toolbarActionItem(
+    onClick: () -> Unit,
+    label: String,
+    icon: ImageVector,
+    interactionSource: MutableInteractionSource,
+    enabled: Boolean = true,
+) {
+    val animatedWidth = Modifier.animateWidth(interactionSource)
+    customItem(
+        buttonGroupContent = {
+            FilledTonalIconButton(
+                onClick = onClick,
+                modifier = animatedWidth,
+                enabled = enabled,
+                interactionSource = interactionSource,
+            ) {
+                androidx.compose.material3.Icon(icon, contentDescription = label)
+            }
+        },
+        menuContent = { menuState ->
+            DropdownMenuItem(
+                text = { Text(label) },
+                leadingIcon = {
+                    androidx.compose.material3.Icon(icon, contentDescription = null)
+                },
+                onClick = {
+                    onClick()
+                    menuState.dismiss()
+                },
+                enabled = enabled,
+            )
+        },
+    )
 }
 
 private fun Modifier.gameSwipeInput(
