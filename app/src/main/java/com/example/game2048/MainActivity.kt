@@ -585,7 +585,8 @@ private fun playLowTick(context: android.content.Context, fallback: HapticFeedba
             return
         }
     }
-    fallback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+    // No fallback: prefer no haptic over an aggressive one on unsupported devices
+    return
 }
 
 private fun Modifier.gameSwipeInput(
