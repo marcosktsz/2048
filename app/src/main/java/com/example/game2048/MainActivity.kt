@@ -275,6 +275,14 @@ private fun GameScreen(
 ) {
     val colors = MaterialTheme.colorScheme
     val dragHapticFeedback = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val swipeTick: () -> Unit = remember(context, hapticsEnabled) {
+        {
+            if (hapticsEnabled) {
+                playLowTick(context, dragHapticFeedback)
+            }
+        }
+    }
     val swipeHapticIntervalPx = with(LocalDensity.current) { 2.dp.toPx() }
     val undoInteractionSource = remember { MutableInteractionSource() }
     val newGameInteractionSource = remember { MutableInteractionSource() }
@@ -315,7 +323,7 @@ private fun GameScreen(
                     .gameSwipeInput(
                         game.board,
                         hapticsEnabled,
-                        dragHapticFeedback,
+                        swipeTick,
                         swipeHapticIntervalPx,
                         onMove,
                     ),
@@ -339,7 +347,7 @@ private fun GameScreen(
                                 .gameSwipeInput(
                                     game.board,
                                     hapticsEnabled,
-                                    dragHapticFeedback,
+                                    swipeTick,
                                     swipeHapticIntervalPx,
                                     onMove,
                                 )
@@ -561,10 +569,29 @@ private fun ButtonGroupScope.toolbarActionItem(
     )
 }
 
+private const val SWIPE_TICK_AMPLITUDE = 0.12f
+
+private fun playLowTick(context: android.content.Context, fallback: HapticFeedback) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val vibrator = context.getSystemService(android.os.Vibrator::class.java)
+        if (vibrator != null &&
+            vibrator.areAllPrimitivesSupported(android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK)
+        ) {
+            vibrator.vibrate(
+                android.os.VibrationEffect.startComposition()
+                    .addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK, SWIPE_TICK_AMPLITUDE)
+                    .compose(),
+            )
+            return
+        }
+    }
+    fallback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+}
+
 private fun Modifier.gameSwipeInput(
     board: List<List<Int>>,
     hapticsEnabled: Boolean,
-    hapticFeedback: HapticFeedback,
+    playTick: () -> Unit,
     hapticIntervalPx: Float,
     onMove: (Direction) -> Unit,
 ): Modifier = pointerInput(board, hapticsEnabled, hapticIntervalPx) {
@@ -601,7 +628,7 @@ private fun Modifier.gameSwipeInput(
                 (lastHapticDistance == 0f || distance - lastHapticDistance >= hapticIntervalPx)
             ) {
                 if (GameLogic.canMove(board, direction)) {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                    playTick()
                     lastHapticDistance = distance
                 }
             }
