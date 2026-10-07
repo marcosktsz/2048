@@ -39,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +70,12 @@ internal fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val hapticFeedback = LocalHapticFeedback.current
+    val tap: () -> Unit = {
+        if (hapticsEnabled) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+        }
+    }
     Surface(color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -87,7 +95,7 @@ internal fun SettingsScreen(
                             .clip(CircleShape)
                             .background(colors.surfaceContainerHighest),
                     )
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = { tap(); onBack() }, modifier = Modifier.size(48.dp)) {
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
@@ -159,7 +167,7 @@ internal fun SettingsScreen(
                                     AppThemeMode.entries.forEach { option ->
                                         FilterChip(
                                             selected = themeMode == option,
-                                            onClick = { onThemeModeChange(option) },
+                                            onClick = { tap(); onThemeModeChange(option) },
                                             label = { Text(option.label) },
                                         )
                                     }
@@ -177,7 +185,7 @@ internal fun SettingsScreen(
                                 title = "Undo button",
                                 description = if (undoEnabled) "On - applies next match" else "Off - applies next match",
                                 checked = undoEnabled,
-                                onCheckedChange = onUndoEnabledChange,
+                                onCheckedChange = { tap(); onUndoEnabledChange(it) },
                             )
                         }
 
@@ -191,7 +199,7 @@ internal fun SettingsScreen(
                                 title = "Haptic feedback",
                                 description = if (hapticsEnabled) "On" else "Off",
                                 checked = hapticsEnabled,
-                                onCheckedChange = onHapticsChange,
+                                onCheckedChange = { tap(); onHapticsChange(it) },
                             )
                         }
 
@@ -205,7 +213,7 @@ internal fun SettingsScreen(
                                 title = "Play sound",
                                 description = if (playSoundEnabled) "On" else "Off",
                                 checked = playSoundEnabled,
-                                onCheckedChange = onPlaySoundChange,
+                                onCheckedChange = { tap(); onPlaySoundChange(it) },
                             )
                         }
                     }

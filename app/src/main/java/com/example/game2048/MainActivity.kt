@@ -11,12 +11,11 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -32,7 +31,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,7 +42,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,7 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonGroupScope
@@ -112,6 +109,7 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val preferences = getSharedPreferences("2048", MODE_PRIVATE)
         val initialGame = GameStateStorage.decode(preferences.getString("current_game", null))
             ?: GameLogic.newGame()
@@ -276,8 +274,6 @@ private fun GameScreen(
     onNewGame: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val context = LocalContext.current
-    val vibrator = remember(context) { checkNotNull(context.getSystemService(Vibrator::class.java)) }
     val dragHapticFeedback = LocalHapticFeedback.current
     val swipeHapticIntervalPx = with(LocalDensity.current) { 2.dp.toPx() }
     val undoInteractionSource = remember { MutableInteractionSource() }
@@ -319,7 +315,6 @@ private fun GameScreen(
                     .gameSwipeInput(
                         game.board,
                         hapticsEnabled,
-                        vibrator,
                         dragHapticFeedback,
                         swipeHapticIntervalPx,
                         onMove,
@@ -344,7 +339,6 @@ private fun GameScreen(
                                 .gameSwipeInput(
                                     game.board,
                                     hapticsEnabled,
-                                    vibrator,
                                     dragHapticFeedback,
                                     swipeHapticIntervalPx,
                                     onMove,
@@ -408,9 +402,14 @@ private fun GameScreen(
                         },
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        val tap: () -> Unit = {
+                            if (hapticsEnabled) {
+                                dragHapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                            }
+                        }
                         if (undoEnabledForMatch) {
                             toolbarActionItem(
-                                onClick = onUndo,
+                                onClick = { tap(); onUndo() },
                                 label = "Undo",
                                 icon = Icons.AutoMirrored.Rounded.ArrowBack,
                                 interactionSource = undoInteractionSource,
@@ -418,13 +417,13 @@ private fun GameScreen(
                             )
                         }
                         toolbarActionItem(
-                            onClick = { confirmNewGame = true },
+                            onClick = { tap(); confirmNewGame = true },
                             label = "New game",
                             icon = Icons.Rounded.Refresh,
                             interactionSource = newGameInteractionSource,
                         )
                         toolbarActionItem(
-                            onClick = onSettings,
+                            onClick = { tap(); onSettings() },
                             label = "Settings",
                             icon = Icons.Rounded.Settings,
                             interactionSource = settingsInteractionSource,
@@ -477,56 +476,31 @@ private fun GameAlertDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
-    BasicAlertDialog(onDismissRequest = onDismiss) {
-        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        val blurBehindPx = with(LocalDensity.current) { 12.dp.roundToPx() }
-        val backgroundBlurPx = with(LocalDensity.current) { 20.dp.roundToPx() }
-        SideEffect {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dialogWindow != null) {
-                dialogWindow.addFlags(
-                    WindowManager.LayoutParams.FLAG_DIM_BEHIND or
-                        WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
-                )
-                dialogWindow.setDimAmount(0.18f)
-                val attributes = dialogWindow.attributes
-                attributes.blurBehindRadius = blurBehindPx
-                dialogWindow.attributes = attributes
-                dialogWindow.setBackgroundBlurRadius(backgroundBlurPx)
-            }
-        }
-        Surface(
-            modifier = Modifier.widthIn(min = 280.dp, max = 560.dp).fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            color = colors.surfaceContainerHigh.copy(alpha = 0.9f),
-            tonalElevation = 6.dp,
-        ) {
-            Column(
-                modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text(
-                    title,
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    message,
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth().offset(x = 8.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onDismiss) { Text(dismissLabel) }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onConfirm) { Text(confirmLabel) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+            val blurBehindPx = with(LocalDensity.current) { 12.dp.roundToPx() }
+            val backgroundBlurPx = with(LocalDensity.current) { 20.dp.roundToPx() }
+            SideEffect {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dialogWindow != null) {
+                    dialogWindow.addFlags(
+                        WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                            WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
+                    )
+                    dialogWindow.setDimAmount(0.18f)
+                    val attributes = dialogWindow.attributes
+                    attributes.blurBehindRadius = blurBehindPx
+                    dialogWindow.attributes = attributes
+                    dialogWindow.setBackgroundBlurRadius(backgroundBlurPx)
                 }
             }
-        }
-    }
+            Text(title)
+        },
+        text = { Text(message) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(dismissLabel) } },
+    )
 }
 
 @Composable
@@ -590,7 +564,6 @@ private fun ButtonGroupScope.toolbarActionItem(
 private fun Modifier.gameSwipeInput(
     board: List<List<Int>>,
     hapticsEnabled: Boolean,
-    vibrator: Vibrator,
     hapticFeedback: HapticFeedback,
     hapticIntervalPx: Float,
     onMove: (Direction) -> Unit,
@@ -628,17 +601,7 @@ private fun Modifier.gameSwipeInput(
                 (lastHapticDistance == 0f || distance - lastHapticDistance >= hapticIntervalPx)
             ) {
                 if (GameLogic.canMove(board, direction)) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                        vibrator.areAllPrimitivesSupported(VibrationEffect.Composition.PRIMITIVE_LOW_TICK)
-                    ) {
-                        vibrator.vibrate(
-                            VibrationEffect.startComposition()
-                                .addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 0.15f)
-                                .compose(),
-                        )
-                    } else {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-                    }
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
                     lastHapticDistance = distance
                 }
             }
