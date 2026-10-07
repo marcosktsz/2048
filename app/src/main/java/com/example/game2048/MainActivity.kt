@@ -569,7 +569,7 @@ private fun ButtonGroupScope.toolbarActionItem(
     )
 }
 
-private const val SWIPE_TICK_AMPLITUDE = 0.12f
+private const val SWIPE_TICK_AMPLITUDE = 0.3f
 
 private fun playLowTick(context: android.content.Context, fallback: HapticFeedback) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
