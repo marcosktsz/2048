@@ -6,7 +6,7 @@
         android:enableOnBackInvokedCallback="true"
         android:label="2048"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.Game2048">
         <activity
             android:name=".SettingsActivity"
             android:exported="false" />
