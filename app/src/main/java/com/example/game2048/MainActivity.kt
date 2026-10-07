@@ -601,7 +601,7 @@ private fun Modifier.gameSwipeInput(
                 (lastHapticDistance == 0f || distance - lastHapticDistance >= hapticIntervalPx)
             ) {
                 if (GameLogic.canMove(board, direction)) {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                     lastHapticDistance = distance
                 }
             }
