@@ -245,7 +245,8 @@ internal fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 24.dp),
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp, bottom = 2.dp),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -282,7 +283,7 @@ internal fun SettingsScreen(
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             Text(
-                                "v${BuildConfig.VERSION_NAME}  ·  @handle  ·  ☕",
+                                "v${BuildConfig.VERSION_NAME}  ·  marcosktsz  ·  ☕",
                                 color = colors.onSurfaceVariant.copy(alpha = 0.6f),
                                 style = MaterialTheme.typography.labelSmall,
                             )
