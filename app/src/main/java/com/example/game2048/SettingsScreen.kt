@@ -283,7 +283,7 @@ internal fun SettingsScreen(
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             Text(
-                                "v${BuildConfig.VERSION_NAME}  ·  marcosktsz  ·  ☕",
+                                "v${BuildConfig.VERSION_NAME}  ·  ☕",
                                 color = colors.onSurfaceVariant.copy(alpha = 0.6f),
                                 style = MaterialTheme.typography.labelSmall,
                             )
