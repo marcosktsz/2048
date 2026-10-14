@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +26,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Vibration
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -160,15 +161,14 @@ internal fun SettingsScreen(
                                         )
                                     }
                                 }
-                                FlowRow(
+                                SingleChoiceSegmentedButtonRow(
                                     modifier = Modifier.fillMaxWidth().padding(start = 52.dp, end = 12.dp, bottom = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
-                                    AppThemeMode.entries.forEach { option ->
-                                        FilterChip(
+                                    AppThemeMode.entries.forEachIndexed { index, option ->
+                                        SegmentedButton(
                                             selected = themeMode == option,
                                             onClick = { tap(); onThemeModeChange(option) },
+                                            shape = SegmentedButtonDefaults.itemShape(index = index, count = AppThemeMode.entries.size),
                                             label = { Text(option.label) },
                                         )
                                     }
