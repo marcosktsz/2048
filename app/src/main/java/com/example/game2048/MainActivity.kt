@@ -376,7 +376,7 @@ private fun GameScreen(
                                             else -> "Slide the tiles to join matching numbers."
                                         },
                                         modifier = Modifier.fillMaxWidth(),
-                                        color = if (game.gameOver) colors.error else colors.onSurfaceVariant,
+                                        color = if (game.gameOver) colors.onSurface else colors.onSurfaceVariant,
                                         textAlign = TextAlign.Center,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium,
@@ -384,7 +384,7 @@ private fun GameScreen(
                                     Text(
                                         text = "A LITTLE GAME OF BIG NUMBERS",
                                         modifier = Modifier.fillMaxWidth(),
-                                        color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                                        color = colors.onSurfaceVariant,
                                         textAlign = TextAlign.Center,
                                         fontSize = 10.sp,
                                         letterSpacing = 2.sp,
