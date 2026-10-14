@@ -240,15 +240,21 @@ internal fun SettingsScreen(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Text(
+                                "built with",
+                                color = colors.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Spacer(Modifier.size(4.dp))
                             Icon(
                                 Icons.Filled.Favorite,
                                 contentDescription = null,
                                 tint = colors.error,
                                 modifier = Modifier.size(12.dp),
                             )
-                            Spacer(Modifier.size(6.dp))
+                            Spacer(Modifier.size(4.dp))
                             Text(
-                                "built with  for",
+                                "for",
                                 color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                             )
