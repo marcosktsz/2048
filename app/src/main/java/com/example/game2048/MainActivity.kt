@@ -337,9 +337,22 @@ private fun GameScreen(
                         contentAlignment = Alignment.TopCenter,
                     ) {
                         val compact = maxHeight < 760.dp
+                        val veryCompact = maxHeight < 540.dp
+                        val isWide = maxWidth > 600.dp
+                        val boardHeightFraction = when {
+                            veryCompact -> 0.38f
+                            compact -> 0.44f
+                            else -> 0.54f
+                        }
+                        val boardMaxSide = remember(maxWidth, maxHeight) {
+                            val w = maxWidth - 44.dp
+                            val h = maxHeight * boardHeightFraction
+                            minOf(w, h, 420.dp)
+                        }
+                        val hintFontSize = if (compact) 13.sp else 15.sp
                         Column(
                             modifier = Modifier
-                                .widthIn(max = 540.dp)
+                                .widthIn(max = if (isWide) 520.dp else maxWidth)
                                 .fillMaxWidth()
                                 .verticalScroll(rememberScrollState())
                                 .heightIn(min = maxHeight)
@@ -352,10 +365,10 @@ private fun GameScreen(
                                 )
                                 .padding(horizontal = 22.dp)
                                 .padding(
-                                    top = if (compact) 24.dp else 34.dp,
+                                    top = if (veryCompact) 16.dp else if (compact) 24.dp else 34.dp,
                                     bottom = 96.dp,
                                 ),
-                            verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (veryCompact) 10.dp else if (compact) 14.dp else 20.dp),
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -367,7 +380,7 @@ private fun GameScreen(
 
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 Column(verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp)) {
-                                    GameBoard(game.board, motion, onMotionFinished)
+                                    GameBoard(game.board, motion, onMotionFinished, boardMaxSide)
 
                                     Text(
                                         text = when {
@@ -378,7 +391,7 @@ private fun GameScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                         color = if (game.gameOver) colors.onSurface else colors.onSurfaceVariant,
                                         textAlign = TextAlign.Center,
-                                        fontSize = 15.sp,
+                                        fontSize = hintFontSize,
                                         fontWeight = FontWeight.Medium,
                                     )
                                 }
@@ -673,96 +686,91 @@ private fun GameBoard(
     board: List<List<Int>>,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
+    boardSize: Dp,
 ) {
     val colors = MaterialTheme.colorScheme
-    val boardColor = colors.surface
     val gap = 8.dp
-    BoxWithConstraints(
+    val cellSize = (boardSize - 22.dp - gap * 3) / 4
+    val stepPx = with(LocalDensity.current) { cellSize.roundToPx() + gap.roundToPx() }
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
+            .size(boardSize)
             .clip(RoundedCornerShape(28.dp))
-            .background(boardColor)
+            .background(colors.surface)
             .padding(11.dp),
     ) {
-        val cellSize = (maxWidth - gap * 3) / 4
-        val stepPx = with(LocalDensity.current) { cellSize.roundToPx() + gap.roundToPx() }
-
-        Box(Modifier.fillMaxSize()) {
-            if (motion == null) {
-                TileGrid(board, cellSize, gap)
-            } else {
-                val current = motion
-                var phase by remember(current.id) { mutableStateOf(BoardAnimationPhase.MOVING) }
-                val completed = remember(current.id) { mutableIntStateOf(0) }
-                val movingTiles = current.tiles.filter { it.kind != TileMotionKind.SPAWN }
-                val spawnedTiles = current.tiles.filter { it.kind == TileMotionKind.SPAWN }
-                TileGrid(
-                    GameLogic.animationBoard(board, current, phase),
-                    cellSize,
-                    gap,
-                )
-                val onPartFinished = {
-                    completed.intValue += 1
-                    val partCount = when (phase) {
-                        BoardAnimationPhase.MOVING -> movingTiles.size + current.merges.size
-                        BoardAnimationPhase.SPAWNING -> spawnedTiles.size
-                    }
-                    if (completed.intValue == partCount) {
-                        when (phase) {
-                            BoardAnimationPhase.MOVING -> if (spawnedTiles.isNotEmpty()) {
-                                completed.intValue = 0
-                                phase = BoardAnimationPhase.SPAWNING
-                            } else {
-                                onMotionFinished(current.id)
-                            }
-                            BoardAnimationPhase.SPAWNING -> onMotionFinished(current.id)
+        if (motion == null) {
+            TileGrid(board, cellSize, gap)
+        } else {
+            val current = motion
+            var phase by remember(current.id) { mutableStateOf(BoardAnimationPhase.MOVING) }
+            val completed = remember(current.id) { mutableIntStateOf(0) }
+            val movingTiles = current.tiles.filter { it.kind != TileMotionKind.SPAWN }
+            val spawnedTiles = current.tiles.filter { it.kind == TileMotionKind.SPAWN }
+            TileGrid(
+                GameLogic.animationBoard(board, current, phase),
+                cellSize,
+                gap,
+            )
+            val onPartFinished = {
+                completed.intValue += 1
+                val partCount = when (phase) {
+                    BoardAnimationPhase.MOVING -> movingTiles.size + current.merges.size
+                    BoardAnimationPhase.SPAWNING -> spawnedTiles.size
+                }
+                if (completed.intValue == partCount) {
+                    when (phase) {
+                        BoardAnimationPhase.MOVING -> if (spawnedTiles.isNotEmpty()) {
+                            completed.intValue = 0
+                            phase = BoardAnimationPhase.SPAWNING
+                        } else {
+                            onMotionFinished(current.id)
                         }
+                        BoardAnimationPhase.SPAWNING -> onMotionFinished(current.id)
                     }
                 }
-                when (phase) {
-                    BoardAnimationPhase.MOVING -> {
-                        movingTiles.forEachIndexed { index, tileMotion ->
-                            AnimatedPathTile(
-                                tileMotion = tileMotion,
-                                index = index,
-                                motionId = current.id,
-                                cellSize = cellSize,
-                                stepPx = stepPx,
-                                dragDirection = current.direction,
-                                onFinished = onPartFinished,
-                            )
-                        }
-                        current.merges.forEachIndexed { index, merge ->
-                            AnimatedMergeTile(
-                                merge = merge,
-                                index = index,
-                                motionId = current.id,
-                                cellSize = cellSize,
-                                stepPx = stepPx,
-                                onFinished = onPartFinished,
-                            )
-                        }
+            }
+            when (phase) {
+                BoardAnimationPhase.MOVING -> {
+                    movingTiles.forEachIndexed { index, tileMotion ->
+                        AnimatedPathTile(
+                            tileMotion = tileMotion,
+                            index = index,
+                            motionId = current.id,
+                            cellSize = cellSize,
+                            stepPx = stepPx,
+                            dragDirection = current.direction,
+                            onFinished = onPartFinished,
+                        )
                     }
-                    BoardAnimationPhase.SPAWNING -> {
-                        spawnedTiles.forEachIndexed { index, tileMotion ->
-                            AnimatedPathTile(
-                                tileMotion = tileMotion,
-                                index = index + movingTiles.size,
-                                motionId = current.id,
-                                cellSize = cellSize,
-                                stepPx = stepPx,
-                                dragDirection = current.direction,
-                                onFinished = onPartFinished,
-                            )
-                        }
+                    current.merges.forEachIndexed { index, merge ->
+                        AnimatedMergeTile(
+                            merge = merge,
+                            index = index,
+                            motionId = current.id,
+                            cellSize = cellSize,
+                            stepPx = stepPx,
+                            onFinished = onPartFinished,
+                        )
+                    }
+                }
+                BoardAnimationPhase.SPAWNING -> {
+                    spawnedTiles.forEachIndexed { index, tileMotion ->
+                        AnimatedPathTile(
+                            tileMotion = tileMotion,
+                            index = index + movingTiles.size,
+                            motionId = current.id,
+                            cellSize = cellSize,
+                            stepPx = stepPx,
+                            dragDirection = current.direction,
+                            onFinished = onPartFinished,
+                        )
                     }
                 }
             }
         }
     }
 }
-
 @Composable
 private fun TileGrid(
     board: List<List<Int>>,
