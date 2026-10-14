@@ -378,9 +378,12 @@ private fun GameScreen(
                                 ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
                             }
 
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp)) {
-                                    GameBoard(game.board, motion, onMotionFinished, boardMaxSide)
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Column(
+                                    modifier = Modifier.widthIn(max = boardMaxSide),
+                                    verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp),
+                                ) {
+                                    GameBoard(game.board, motion, onMotionFinished)
 
                                     Text(
                                         text = when {
@@ -686,20 +689,23 @@ private fun GameBoard(
     board: List<List<Int>>,
     motion: BoardMotion?,
     onMotionFinished: (Int) -> Unit,
-    boardSize: Dp,
 ) {
     val colors = MaterialTheme.colorScheme
+    val boardColor = colors.surface
     val gap = 8.dp
-    val cellSize = (boardSize - 22.dp - gap * 3) / 4
-    val stepPx = with(LocalDensity.current) { cellSize.roundToPx() + gap.roundToPx() }
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
-            .size(boardSize)
+            .fillMaxWidth()
+            .aspectRatio(1f)
             .clip(RoundedCornerShape(28.dp))
-            .background(colors.surface)
+            .background(boardColor)
             .padding(11.dp),
     ) {
-        if (motion == null) {
+        val cellSize = (maxWidth - gap * 3) / 4
+        val stepPx = with(LocalDensity.current) { cellSize.roundToPx() + gap.roundToPx() }
+
+        Box(Modifier.fillMaxSize()) {
+            if (motion == null) {
             TileGrid(board, cellSize, gap)
         } else {
             val current = motion
@@ -770,6 +776,7 @@ private fun GameBoard(
             }
         }
     }
+}
 }
 @Composable
 private fun TileGrid(
