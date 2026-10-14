@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
@@ -127,21 +129,26 @@ internal fun SettingsScreen(
             ) {
                 BoxWithConstraints(
                     modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-                    contentAlignment = Alignment.TopCenter,
                 ) {
                     val compact = maxHeight < 760.dp
                     Column(
                         modifier = Modifier
                             .widthIn(max = 540.dp)
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp)
-                            .padding(
-                                top = if (compact) 14.dp else 18.dp,
-                                bottom = if (compact) 10.dp else 16.dp,
-                            ),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                            .fillMaxHeight(),
                     ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 12.dp)
+                                .padding(
+                                    top = if (compact) 14.dp else 18.dp,
+                                    bottom = 4.dp,
+                                ),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(
@@ -233,6 +240,8 @@ internal fun SettingsScreen(
                             )
                         }
 
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -263,7 +272,7 @@ internal fun SettingsScreen(
                                 painter = painterResource(id = R.drawable.ic_android),
                                 contentDescription = "Android",
                                 tint = Color.Unspecified,
-                                modifier = Modifier.size(24.dp),
+                                modifier = Modifier.offset(y = (-3).dp).size(24.dp),
                             )
                         }
                     }
