@@ -275,6 +275,18 @@ internal fun SettingsScreen(
                                 modifier = Modifier.offset(y = (-3).dp).size(24.dp),
                             )
                         }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                "v${BuildConfig.VERSION_NAME}  ·  @handle  ·  ☕",
+                                color = colors.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
                     }
                 }
             }
