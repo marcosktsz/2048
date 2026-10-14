@@ -26,9 +26,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Vibration
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +44,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,6 +61,7 @@ internal enum class AppThemeMode(val preferenceValue: String, val label: String)
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun SettingsScreen(
     themeMode: AppThemeMode,
@@ -161,16 +164,24 @@ internal fun SettingsScreen(
                                         )
                                     }
                                 }
-                                SingleChoiceSegmentedButtonRow(
+                                Row(
                                     modifier = Modifier.fillMaxWidth().padding(start = 52.dp, end = 12.dp, bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
                                 ) {
                                     AppThemeMode.entries.forEachIndexed { index, option ->
-                                        SegmentedButton(
-                                            selected = themeMode == option,
-                                            onClick = { tap(); onThemeModeChange(option) },
-                                            shape = SegmentedButtonDefaults.itemShape(index = index, count = AppThemeMode.entries.size),
-                                            label = { Text(option.label) },
-                                        )
+                                        ToggleButton(
+                                            checked = themeMode == option,
+                                            onCheckedChange = { tap(); onThemeModeChange(option) },
+                                            modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                                            shapes =
+                                                when (index) {
+                                                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                                    AppThemeMode.entries.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                                },
+                                        ) {
+                                            Text(option.label)
+                                        }
                                     }
                                 }
                             }
