@@ -339,15 +339,13 @@ private fun GameScreen(
                         val compact = maxHeight < 760.dp
                         val veryCompact = maxHeight < 540.dp
                         val isWide = maxWidth > 600.dp
-                        val boardHeightFraction = when {
-                            veryCompact -> 0.38f
-                            compact -> 0.44f
-                            else -> 0.54f
-                        }
                         val boardMaxSide = remember(maxWidth, maxHeight) {
                             val w = maxWidth - 44.dp
-                            val h = maxHeight * boardHeightFraction
-                            minOf(w, h, 420.dp)
+                            when {
+                                veryCompact -> minOf(w, maxHeight * 0.55f, 360.dp)
+                                isWide -> minOf(w, 420.dp)
+                                else -> w
+                            }
                         }
                         val hintFontSize = if (compact) 13.sp else 15.sp
                         Column(
