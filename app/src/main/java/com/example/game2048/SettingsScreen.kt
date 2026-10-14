@@ -246,15 +246,6 @@ private fun SettingsSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = Modifier.semantics { contentDescription = "$title. $description" },
-            thumbContent = {
-                if (checked) {
-                    Icon(
-                        Icons.Rounded.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            },
             colors = SwitchDefaults.colors(),
         )
     }
