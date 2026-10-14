@@ -381,15 +381,6 @@ private fun GameScreen(
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
-                                    Text(
-                                        text = "A LITTLE GAME OF BIG NUMBERS",
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = colors.onSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        fontSize = 10.sp,
-                                        letterSpacing = 2.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
                                 }
                             }
                         }
