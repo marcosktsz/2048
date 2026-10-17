@@ -1,7 +1,10 @@
 package com.example.game2048
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -47,14 +50,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+
+private const val BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/marcosktszm"
 
 internal enum class AppThemeMode(val preferenceValue: String, val label: String) {
     SYSTEM("system", "System"),
@@ -81,6 +91,7 @@ internal fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val tap: () -> Unit = {
         if (hapticsEnabled) {
@@ -281,9 +292,29 @@ internal fun SettingsScreen(
                                 .fillMaxWidth()
                                 .padding(bottom = 12.dp),
                             horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                "v${BuildConfig.VERSION_NAME}  ·  ☕",
+                                "v${BuildConfig.VERSION_NAME}  ·  ",
+                                color = colors.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Text(
+                                text = buildAnnotatedString {
+                                    append("☕ ")
+                                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                                        append("Buy me a coffee")
+                                    }
+                                },
+                                modifier = Modifier.clickable(
+                                    onClickLabel = "Buy me a coffee",
+                                    role = Role.Button,
+                                ) {
+                                    tap()
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(BUY_ME_A_COFFEE_URL))
+                                    )
+                                },
                                 color = colors.onSurfaceVariant.copy(alpha = 0.6f),
                                 style = MaterialTheme.typography.labelSmall,
                             )
