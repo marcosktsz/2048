@@ -94,7 +94,6 @@ internal fun SettingsScreen(
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .displayCutoutPadding()
-                    .widthIn(max = 540.dp)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -129,6 +128,7 @@ internal fun SettingsScreen(
             ) {
                 BoxWithConstraints(
                     modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
                     val compact = maxHeight < 760.dp
                     Column(
