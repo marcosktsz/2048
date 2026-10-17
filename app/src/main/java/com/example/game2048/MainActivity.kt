@@ -1,10 +1,12 @@
 @file:OptIn(
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+    androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi::class,
 )
 
 package com.example.game2048
 
-import android.media.AudioManager
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
@@ -30,11 +32,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.PaddingValues
@@ -62,11 +65,14 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.window.core.layout.WindowSizeClass
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -86,6 +92,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -94,8 +102,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
@@ -122,7 +132,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val context = LocalContext.current
             val hapticFeedback = LocalHapticFeedback.current
-            val audioManager = remember(context) { checkNotNull(context.getSystemService(AudioManager::class.java)) }
+            val mergeClickPlayer = remember { MergeClickPlayer(context) }
+            DisposableEffect(mergeClickPlayer) {
+                onDispose { mergeClickPlayer.release() }
+            }
             val systemDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
             var themeMode by remember {
                 mutableStateOf(AppThemeMode.fromPreference(preferences.getString("theme_mode", null)))
@@ -184,7 +197,7 @@ class MainActivity : ComponentActivity() {
                             val next = GameLogic.move(previous, direction)
                             if (next != previous) {
                                 if (playSoundEnabled && next.score > previous.score) {
-                                    audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK)
+                                    mergeClickPlayer.play()
                                 }
                                 if (hapticsEnabled && next.gameOver && !previous.gameOver) {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.Reject)
@@ -283,9 +296,6 @@ private fun GameScreen(
         }
     }
     val swipeHapticIntervalPx = with(LocalDensity.current) { 2.dp.toPx() }
-    val undoInteractionSource = remember { MutableInteractionSource() }
-    val newGameInteractionSource = remember { MutableInteractionSource() }
-    val settingsInteractionSource = remember { MutableInteractionSource() }
     var confirmNewGame by remember { mutableStateOf(false) }
     var showGameOverDialog by rememberSaveable { mutableStateOf(game.gameOver) }
     var gameOverDialogDismissed by rememberSaveable { mutableStateOf(false) }
@@ -298,149 +308,169 @@ private fun GameScreen(
             motion == null && !gameOverDialogDismissed -> showGameOverDialog = true
         }
     }
+
+    // Form-factor decisions use standard window size classes, measured on the window
+    // itself — not on the post-header remainder, which is what made the old
+    // 540/760.dp thresholds misfire on smaller phones.
+    val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
+    val compactHeight = !windowSizeClass.isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND)
+    val mediumWidth = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    val expandedHeight = windowSizeClass.isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_EXPANDED_LOWER_BOUND)
+
+    // The header scales with window height so smaller phones keep a big board
+    // instead of oversized chrome. Compact height switches to a side-by-side layout.
+    val windowHeightDp = LocalConfiguration.current.screenHeightDp
+    val headerTitleSize = when {
+        windowHeightDp < 560 -> 36.sp
+        windowHeightDp < 700 -> 44.sp
+        else -> 57.sp
+    }
+    val headerSubtitleSize: TextUnit? = when {
+        windowHeightDp < 560 -> null
+        windowHeightDp < 700 -> 13.sp
+        else -> 16.sp
+    }
+    val headerVerticalPadding = if (windowHeightDp < 700) 12.dp else 16.dp
+
+    val swipeInput = Modifier.gameSwipeInput(game.board, hapticsEnabled, swipeTick, swipeHapticIntervalPx, onMove)
+    val scoresContent: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ScoreCard(label = "SCORE", value = game.score, modifier = Modifier.weight(1f))
+            ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
+        }
+    }
+    val boardContent: @Composable () -> Unit = { GameBoard(game.board, motion, onMotionFinished) }
+    val hintContent: @Composable () -> Unit = {
+        Text(
+            text = when {
+                game.gameOver -> "No moves left. Give it another go?"
+                game.won -> "2048! Lovely work. Keep playing or start fresh."
+                else -> "Slide the tiles to join matching numbers."
+            },
+            modifier = Modifier.fillMaxWidth(),
+            color = if (game.gameOver) colors.onSurface else colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            fontSize = if (expandedHeight) 15.sp else 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+
     Surface(color = colors.surfaceContainerHigh, modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
+        if (compactHeight) {
+            // Landscape / short windows: board and controls side by side.
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.surfaceContainerHigh)
+                    .fillMaxSize()
                     .statusBarsPadding()
                     .displayCutoutPadding(),
-                contentAlignment = Alignment.TopCenter,
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                color = colors.surface,
             ) {
-                Header(
+                Row(
                     modifier = Modifier
-                        .widthIn(max = 540.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 22.dp, vertical = 16.dp),
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .gameSwipeInput(
-                        game.board,
-                        hapticsEnabled,
-                        swipeTick,
-                        swipeHapticIntervalPx,
-                        onMove,
-                    ),
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-                    color = colors.surface,
+                        .fillMaxSize()
+                        .navigationBarsPadding()
+                        .then(swipeInput),
                 ) {
-                    BoxWithConstraints(
-                        modifier = Modifier.fillMaxSize().navigationBarsPadding(),
-                        contentAlignment = Alignment.TopCenter,
-                    ) {
-                        val compact = maxHeight < 760.dp
-                        val veryCompact = maxHeight < 540.dp
-                        val isWide = maxWidth > 600.dp
-                        val boardMaxSide = remember(maxWidth, maxHeight) {
-                            val w = maxWidth - 44.dp
-                            when {
-                                veryCompact -> minOf(w, maxHeight * 0.55f, 360.dp)
-                                isWide -> minOf(w, 420.dp)
-                                else -> w
-                            }
-                        }
-                        val hintFontSize = if (compact) 13.sp else 15.sp
-                        Column(
-                            modifier = Modifier
-                                .widthIn(max = if (isWide) 520.dp else maxWidth)
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState())
-                                .heightIn(min = maxHeight)
-                                .gameSwipeInput(
-                                    game.board,
-                                    hapticsEnabled,
-                                    swipeTick,
-                                    swipeHapticIntervalPx,
-                                    onMove,
-                                )
-                                .padding(horizontal = 22.dp)
-                                .padding(
-                                    top = if (veryCompact) 16.dp else if (compact) 24.dp else 34.dp,
-                                    bottom = 96.dp,
-                                ),
-                            verticalArrangement = Arrangement.spacedBy(if (veryCompact) 10.dp else if (compact) 14.dp else 20.dp),
+                    BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        val boardSide = (minOf(maxWidth, maxHeight) - 32.dp)
+                            .coerceAtLeast(0.dp)
+                            .coerceAtMost(MAX_BOARD_SIDE)
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                ScoreCard(label = "SCORE", value = game.score, modifier = Modifier.weight(1f))
-                                ScoreCard(label = "BEST", value = best, modifier = Modifier.weight(1f))
-                            }
-
-                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Column(
-                                    modifier = Modifier.widthIn(max = boardMaxSide),
-                                    verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp),
-                                ) {
-                                    GameBoard(game.board, motion, onMotionFinished)
-
-                                    Text(
-                                        text = when {
-                                            game.gameOver -> "No moves left. Give it another go?"
-                                            game.won -> "2048! Lovely work. Keep playing or start fresh."
-                                            else -> "Slide the tiles to join matching numbers."
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = if (game.gameOver) colors.onSurface else colors.onSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        fontSize = hintFontSize,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                }
-                            }
+                            Box(modifier = Modifier.size(boardSide)) { boardContent() }
                         }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(horizontal = 22.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Header(titleSize = 32.sp, subtitleSize = 13.sp)
+                        scoresContent()
+                        hintContent()
+                        Spacer(modifier = Modifier.weight(1f))
+                        GameToolbar(
+                            canUndo = canUndo,
+                            undoEnabledForMatch = undoEnabledForMatch,
+                            hapticsEnabled = hapticsEnabled,
+                            onUndo = onUndo,
+                            onNewGameRequest = { confirmNewGame = true },
+                            onSettings = onSettings,
+                        )
                     }
                 }
-                HorizontalFloatingToolbar(
-                    expanded = true,
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 16.dp)
-                        .navigationBarsPadding(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                        .fillMaxWidth()
+                        .background(colors.surfaceContainerHigh)
+                        .statusBarsPadding()
+                        .displayCutoutPadding(),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    ButtonGroup(
-                        overflowIndicator = { menuState ->
-                            ButtonGroupDefaults.OverflowIndicator(menuState = menuState)
-                        },
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Header(
+                        titleSize = headerTitleSize,
+                        subtitleSize = headerSubtitleSize,
+                        modifier = Modifier
+                            .widthIn(max = 540.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 22.dp, vertical = headerVerticalPadding),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .then(swipeInput),
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                        color = colors.surface,
                     ) {
-                        val tap: () -> Unit = {
-                            if (hapticsEnabled) {
-                                dragHapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                            }
-                        }
-                        if (undoEnabledForMatch) {
-                            toolbarActionItem(
-                                onClick = { tap(); onUndo() },
-                                label = "Undo",
-                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                                interactionSource = undoInteractionSource,
-                                enabled = canUndo,
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            FittedGameColumn(
+                                viewportHeight = maxHeight,
+                                topPadding = if (expandedHeight) 34.dp else 20.dp,
+                                spacing = if (expandedHeight) 20.dp else 14.dp,
+                                modifier = Modifier
+                                    .widthIn(max = if (mediumWidth) 520.dp else maxWidth)
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                                    .then(swipeInput)
+                                    .padding(horizontal = 22.dp),
+                                scores = scoresContent,
+                                board = boardContent,
+                                hint = hintContent,
                             )
                         }
-                        toolbarActionItem(
-                            onClick = { tap(); confirmNewGame = true },
-                            label = "New game",
-                            icon = Icons.Rounded.Refresh,
-                            interactionSource = newGameInteractionSource,
-                        )
-                        toolbarActionItem(
-                            onClick = { tap(); onSettings() },
-                            label = "Settings",
-                            icon = Icons.Rounded.Settings,
-                            interactionSource = settingsInteractionSource,
-                        )
                     }
+                    GameToolbar(
+                        canUndo = canUndo,
+                        undoEnabledForMatch = undoEnabledForMatch,
+                        hapticsEnabled = hapticsEnabled,
+                        onUndo = onUndo,
+                        onNewGameRequest = { confirmNewGame = true },
+                        onSettings = onSettings,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 16.dp)
+                            .navigationBarsPadding(),
+                    )
                 }
             }
         }
@@ -516,23 +546,135 @@ private fun GameAlertDialog(
 }
 
 @Composable
-private fun Header(modifier: Modifier = Modifier) {
+private fun Header(
+    modifier: Modifier = Modifier,
+    titleSize: TextUnit = 57.sp,
+    subtitleSize: TextUnit? = 16.sp,
+) {
     val colors = MaterialTheme.colorScheme
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = "2048",
                 color = colors.onSurface,
-                fontSize = 57.sp,
-                lineHeight = 61.sp,
+                fontSize = titleSize,
+                lineHeight = (titleSize.value * 1.08f).sp,
                 fontWeight = FontWeight.Black,
-                letterSpacing = (-3).sp,
+                letterSpacing = (titleSize.value * -0.05f).sp,
             )
-            Text(
-                text = "Make room for one more.",
-                color = colors.onSurfaceVariant,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
+            if (subtitleSize != null) {
+                Text(
+                    text = "Make room for one more.",
+                    color = colors.onSurfaceVariant,
+                    fontSize = subtitleSize,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+private val MAX_BOARD_SIDE = 480.dp
+private val MIN_BOARD_SIDE = 200.dp
+
+// Vertical space reserved at the bottom of the board column for the floating toolbar.
+private val TOOLBAR_CLEARANCE = 96.dp
+
+/**
+ * Lays out [scores], [board] and [hint] so the board becomes a square that takes all
+ * the space actually left after the other two are measured — no height fractions and
+ * no breakpoint cliffs. If [MIN_BOARD_SIDE] still doesn't fit, the column grows past
+ * [viewportHeight] and the outer scrollable takes over.
+ */
+@Composable
+private fun FittedGameColumn(
+    viewportHeight: Dp,
+    topPadding: Dp,
+    spacing: Dp,
+    modifier: Modifier = Modifier,
+    scores: @Composable () -> Unit,
+    board: @Composable () -> Unit,
+    hint: @Composable () -> Unit,
+) {
+    Layout(content = { scores(); board(); hint() }, modifier = modifier) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val scoresPlaceable = measurables[0].measure(Constraints(maxWidth = width))
+        val hintPlaceable = measurables[2].measure(Constraints(maxWidth = width))
+        val topPx = topPadding.roundToPx()
+        val spacingPx = spacing.roundToPx()
+        val clearancePx = TOOLBAR_CLEARANCE.roundToPx()
+        val viewportPx = viewportHeight.roundToPx()
+        val heightLeft = viewportPx - topPx - scoresPlaceable.height - spacingPx -
+            hintPlaceable.height - spacingPx - clearancePx
+        val boardSide = minOf(width, MAX_BOARD_SIDE.roundToPx(), heightLeft)
+            .coerceAtLeast(MIN_BOARD_SIDE.roundToPx())
+            .coerceAtMost(width)
+        val boardPlaceable = measurables[1].measure(Constraints.fixed(boardSide, boardSide))
+        val contentHeight = topPx + scoresPlaceable.height + spacingPx + boardSide +
+            spacingPx + hintPlaceable.height + clearancePx
+        layout(width, maxOf(contentHeight, viewportPx)) {
+            var y = topPx
+            scoresPlaceable.placeRelative(0, y)
+            y += scoresPlaceable.height + spacingPx
+            boardPlaceable.placeRelative((width - boardSide) / 2, y)
+            y += boardSide + spacingPx
+            hintPlaceable.placeRelative((width - hintPlaceable.width) / 2, y)
+        }
+    }
+}
+
+@Composable
+private fun GameToolbar(
+    canUndo: Boolean,
+    undoEnabledForMatch: Boolean,
+    hapticsEnabled: Boolean,
+    onUndo: () -> Unit,
+    onNewGameRequest: () -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val hapticFeedback = LocalHapticFeedback.current
+    val tap: () -> Unit = {
+        if (hapticsEnabled) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+        }
+    }
+    // ButtonGroup's content lambda is not composable in this M3 version, so the
+    // interaction sources are remembered here and passed down.
+    val undoInteractionSource = remember { MutableInteractionSource() }
+    val newGameInteractionSource = remember { MutableInteractionSource() }
+    val settingsInteractionSource = remember { MutableInteractionSource() }
+    HorizontalFloatingToolbar(
+        expanded = true,
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        ButtonGroup(
+            overflowIndicator = { menuState ->
+                ButtonGroupDefaults.OverflowIndicator(menuState = menuState)
+            },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (undoEnabledForMatch) {
+                toolbarActionItem(
+                    onClick = { tap(); onUndo() },
+                    label = "Undo",
+                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    interactionSource = undoInteractionSource,
+                    enabled = canUndo,
+                )
+            }
+            toolbarActionItem(
+                onClick = { tap(); onNewGameRequest() },
+                label = "New game",
+                icon = Icons.Rounded.Refresh,
+                interactionSource = newGameInteractionSource,
+            )
+            toolbarActionItem(
+                onClick = { tap(); onSettings() },
+                label = "Settings",
+                icon = Icons.Rounded.Settings,
+                interactionSource = settingsInteractionSource,
             )
         }
     }
@@ -574,6 +716,45 @@ private fun ButtonGroupScope.toolbarActionItem(
 }
 
 private const val SWIPE_TICK_AMPLITUDE = 0.3f
+
+/**
+ * Plays the system FX_KEY_CLICK sample (res/raw/merge_click.ogg is Android's own
+ * Effect_Tick.ogg) on the media stream (USAGE_GAME). AudioManager.playSoundEffect
+ * uses the sonification path, which follows the ringer stream and is silenced by
+ * Do Not Disturb and silent mode — game audio should follow media volume instead.
+ */
+private class MergeClickPlayer(context: android.content.Context) {
+    private var clickSoundId = 0
+    private var loaded = false
+    private val soundPool = SoundPool.Builder()
+        .setMaxStreams(2)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build(),
+        )
+        .build()
+
+    init {
+        soundPool.setOnLoadCompleteListener { _, sampleId, status ->
+            if (status == 0 && sampleId == clickSoundId) {
+                loaded = true
+            }
+        }
+        clickSoundId = soundPool.load(context, R.raw.merge_click, 1)
+    }
+
+    fun play() {
+        if (loaded) {
+            soundPool.play(clickSoundId, 1f, 1f, 1, 0, 1f)
+        }
+    }
+
+    fun release() {
+        soundPool.release()
+    }
+}
 
 private fun playLowTick(context: android.content.Context, fallback: HapticFeedback) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -907,14 +1088,18 @@ private fun Tile(value: Int, size: Dp, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         if (value != 0) {
+            // Digits scale with the tile so small boards don't pair tiny tiles with
+            // huge numbers. Factors reproduce the old fixed 32/27/21.sp on a ~67dp
+            // tile, and toSp() keeps the proportion steady across font scales.
+            val digitScale = when {
+                value < 100 -> 0.47f
+                value < 1000 -> 0.4f
+                else -> 0.31f
+            }
             Text(
                 text = value.toString(),
                 color = tilePalette.content,
-                fontSize = when {
-                    value < 100 -> 32.sp
-                    value < 1000 -> 27.sp
-                    else -> 21.sp
-                },
+                fontSize = with(LocalDensity.current) { (size * digitScale).toSp() },
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = (-1).sp,
                 maxLines = 1,
