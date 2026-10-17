@@ -1,4 +1,4 @@
-package com.example.game2048
+package com.marcosktsz.material2048
 
 internal object GameStateStorage {
     private const val VERSION = "1"

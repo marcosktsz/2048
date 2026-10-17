@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "2048"
+rootProject.name = "Material2048"
 include(":app")

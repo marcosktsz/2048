@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.game2048"
+    namespace = "com.marcosktsz.material2048"
     compileSdk = 35
 
     compileOptions {
@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.game2048"
+        applicationId = "com.marcosktsz.material2048"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

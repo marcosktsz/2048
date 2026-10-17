@@ -1,4 +1,4 @@
-package com.example.game2048
+package com.marcosktsz.material2048
 
 import android.os.Build
 import android.os.Bundle

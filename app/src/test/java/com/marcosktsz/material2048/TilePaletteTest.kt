@@ -1,4 +1,4 @@
-package com.example.game2048
+package com.marcosktsz.material2048
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme

@@ -1,4 +1,4 @@
-package com.example.game2048
+package com.marcosktsz.material2048
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

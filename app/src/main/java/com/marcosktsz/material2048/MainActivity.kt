@@ -3,7 +3,7 @@
     androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi::class,
 )
 
-package com.example.game2048
+package com.marcosktsz.material2048
 
 import android.media.AudioAttributes
 import android.media.SoundPool
