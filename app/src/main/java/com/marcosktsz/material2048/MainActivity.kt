@@ -876,6 +876,7 @@ private fun GameBoard(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
+            .gameBoardGestureExclusion()
             .clip(RoundedCornerShape(28.dp))
             .background(boardColor)
             .padding(11.dp),
