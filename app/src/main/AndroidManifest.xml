@@ -2,6 +2,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
+        android:appCategory="game"
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"

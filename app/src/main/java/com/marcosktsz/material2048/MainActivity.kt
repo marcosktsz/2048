@@ -84,7 +84,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedback
@@ -120,6 +119,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes = window.attributes.apply {
+                preferredRefreshRate = display.supportedModes.maxOf { it.refreshRate }
+            }
+        }
         val preferences = getSharedPreferences("2048", MODE_PRIVATE)
         val initialGame = GameStateStorage.decode(preferences.getString("current_game", null))
             ?: GameLogic.newGame()
@@ -872,13 +876,11 @@ private fun GameBoard(
 ) {
     val colors = MaterialTheme.colorScheme
     val boardColor = colors.surface
-    val maxRefreshRate = LocalView.current.display?.supportedModes?.maxOf { it.refreshRate } ?: 120f
     val gap = 8.dp
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .preferredFrameRate(maxRefreshRate)
             .gameBoardGestureExclusion()
             .clip(RoundedCornerShape(28.dp))
             .background(boardColor)
