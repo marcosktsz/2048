@@ -24,7 +24,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.marcosktsz.material2048"
+        applicationId = "com.material2048"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
